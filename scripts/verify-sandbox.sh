@@ -90,5 +90,28 @@ check 'mysql credentials are absent from the agent config' \
 	'CLEAN' \
 	'grep -qE "MYSQL_(PASS|USER)" ~/.claude.json && echo LEAKED || echo CLEAN'
 
+# --- docker engine ------------------------------------------------------
+# The image only opts in via a label; whether sbx actually launched dockerd and
+# whether the agent can reach its socket is observable at runtime only.
+check 'docker daemon answers the agent' \
+	'Server: Docker Engine' \
+	'docker version 2>&1 | grep -A1 "^Server:"'
+
+check 'agent can build and run a container' \
+	'CONTAINER_OK' \
+	'docker run --rm alpine echo CONTAINER_OK 2>&1 | tail -1'
+
+# Proves the daemon is the sandbox's own and not the host's: the nested engine
+# reports the sandbox hostname, the host engine would report the host VM.
+check 'daemon is the sandbox-local engine, not the host' \
+	"$SANDBOX" \
+	'docker info --format "{{.Name}}"'
+
+# `compose version` is client-only and passes even with no daemon at all;
+# `compose ls` has to reach the engine, so it is the one worth asserting.
+check 'compose plugin reaches the nested engine' \
+	'NAME' \
+	'docker compose ls 2>&1'
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

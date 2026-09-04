@@ -1,4 +1,15 @@
-FROM docker/sandbox-templates:claude-code
+# The `-docker` flavour of the base template is the supported way to give an
+# agent a working Docker Engine: it ships dockerd/containerd, puts the agent in
+# the `docker` group, and carries the `com.docker.sandboxes.start-docker=true`
+# label that makes sbx run the sandbox privileged and launch dockerd itself
+# (logging to /var/log/dockerd.log) before the agent starts. The plain
+# `claude-code` flavour has the docker CLI but no daemon, so every docker
+# command fails with "dial unix /var/run/docker.sock: no such file".
+#
+# The daemon is nested inside the sandbox -- it is not the host's. Nothing here
+# exposes the host socket, and images/containers the agent creates live and die
+# with the sandbox.
+FROM docker/sandbox-templates:claude-code-docker
 
 USER root
 
@@ -35,6 +46,8 @@ RUN npm install -g @benborla29/mcp-server-mysql
 
 # Fail the build rather than ship an image whose tools the agent cannot reach.
 RUN su agent -s /bin/sh -c 'ai-memory --version' \
- && su agent -s /bin/sh -c 'test -x /usr/local/share/ai-memory/hooks/claude-code/session-start.sh'
+ && su agent -s /bin/sh -c 'test -x /usr/local/share/ai-memory/hooks/claude-code/session-start.sh' \
+ && command -v dockerd >/dev/null \
+ && id -nG agent | grep -qw docker
 
 USER agent

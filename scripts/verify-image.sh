@@ -36,6 +36,26 @@ check() {
 	fi
 }
 
+# check_label <name> <expected-substring> <label-key>
+#
+# Labels drive sbx's own behaviour (it reads them before the container exists),
+# so they have to be asserted on the image metadata rather than from inside it.
+check_label() {
+	local name="$1" expected="$2" actual
+
+	actual="$(docker image inspect "$IMAGE" \
+		--format "{{index .Config.Labels \"$3\"}}" 2>&1)"
+
+	if [[ "$actual" == *"$expected"* ]]; then
+		printf 'ok   %s\n' "$name"
+		pass=$((pass + 1))
+	else
+		printf 'FAIL %s\n     want substring: %s\n     got: %s\n' \
+			"$name" "$expected" "${actual:-<empty>}"
+		fail=$((fail + 1))
+	fi
+}
+
 printf '== image acceptance: %s ==\n' "$IMAGE"
 
 check 'ai-memory resolves on the agent PATH' \
@@ -85,6 +105,35 @@ check 'agent can initialise a data directory' \
 check 'mysql mcp server is present for the investigator kit' \
 	'mcp-server-mysql' \
 	'ls /usr/local/share/npm-global/lib/node_modules/@benborla29'
+
+# --- docker engine ------------------------------------------------------
+# sbx decides whether to run the sandbox as docker-in-docker by reading this
+# label off the template image, then starts dockerd itself and waits for it.
+# Without the label the agent gets the docker CLI and no daemon.
+check_label 'image opts in to docker-in-docker' \
+	'true' \
+	'com.docker.sandboxes.start-docker'
+
+check 'dockerd is present for sbx to start' \
+	'/usr/bin/dockerd' \
+	'command -v dockerd'
+
+check 'docker CLI resolves on the agent PATH' \
+	'/usr/bin/docker' \
+	'command -v docker'
+
+check 'compose and buildx plugins are installed' \
+	'compose' \
+	'ls /usr/libexec/docker/cli-plugins'
+
+# dockerd runs as root and creates the socket root:docker; the agent reaches it
+# through the group, so losing that membership breaks every docker command.
+# Asserted against /etc/group rather than the current process: `docker run
+# --user 1000:1000` sets only the primary gid and drops supplementary groups,
+# so a bare `id -nG` would report just `agent` even on a correct image.
+check 'agent user is in the docker group' \
+	'docker' \
+	'id -nG agent'
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
