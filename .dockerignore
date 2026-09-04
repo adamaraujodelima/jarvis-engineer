@@ -1,0 +1,11 @@
+.git
+.gitignore
+.idea
+*.tar
+agent.log
+latest
+.env
+docs
+scripts
+agents
+config
