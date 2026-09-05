@@ -12,10 +12,26 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
-KITS=(agents/coder agents/investigator)
+# Discovered rather than listed: a hardcoded pair is how agents/planner and
+# agents/reviewer ended up carrying the shared ai-memory block with nothing
+# checking it. A new kit is covered the moment its spec lands.
+KITS=()
+for spec in agents/*/spec.yaml; do
+	KITS+=("$(dirname "$spec")")
+done
 
 pass=0
 fail=0
+
+# spec_text <kit>
+#
+# The spec as one whitespace-normalised line. Assertions about command content
+# have to survive a reformat: these specs are Prettier-formatted, and Prettier
+# splits a long flow sequence across lines, which silently broke every check
+# that matched the single-line form.
+spec_text() {
+	tr -s ' \n\t' ' ' <"$1/spec.yaml"
+}
 
 # check <name> <expected-substring> <actual>
 check() {
@@ -50,14 +66,14 @@ for kit in "${KITS[@]}"; do
 	# host.docker.internal:3306 is accepted as a rule but never matches, because
 	# enforcement normalises that name to localhost. Assert the rule that works.
 	check "$kit allows mysql on the name enforcement matches" \
-		'"localhost:3306"' "$(cat "$kit/spec.yaml")"
+		'"localhost:3306"' "$(spec_text "$kit")"
 
 	check "$kit tunnels mysql through the CONNECT proxy" \
 		'PROXY:gateway.docker.internal:localhost:3306,proxyport=3128' \
-		"$(cat "$kit/spec.yaml")"
+		"$(spec_text "$kit")"
 
 	check "$kit keeps mysql read-only" \
-		'-e ALLOW_DELETE_OPERATION=false' "$(cat "$kit/spec.yaml")"
+		'-e ALLOW_DELETE_OPERATION=false' "$(spec_text "$kit")"
 
 	# The password must be inherited from the environment, never written into a
 	# config file by -e.
@@ -66,12 +82,12 @@ for kit in "${KITS[@]}"; do
 		"$(grep -qE '\-e MYSQL_(PASS|USER)=' "$kit/spec.yaml" && echo LEAKED || echo CLEAN)"
 
 	check "$kit degrades when credentials are absent" \
-		'skipping registration' "$(cat "$kit/spec.yaml")"
+		'skipping registration' "$(spec_text "$kit")"
 
 	# Startup steps get a PATH without ~/.local/bin, so a bare `claude` exits
 	# 127 -- and a non-zero startup step silently aborts all later steps.
 	check "$kit invokes claude by absolute path" \
-		'CLAUDE=/home/agent/.local/bin/claude' "$(cat "$kit/spec.yaml")"
+		'CLAUDE=/home/agent/.local/bin/claude' "$(spec_text "$kit")"
 
 	check "$kit cannot abort the startup chain" \
 		'CLEAN' \
@@ -80,37 +96,44 @@ for kit in "${KITS[@]}"; do
 		   grep -q 'exit 0' "$kit/spec.yaml" && echo CLEAN || echo RISK)"
 
 	check "$kit gates the agent on server readiness" \
-		'server not ready after 30s' "$(cat "$kit/spec.yaml")"
-
-	spec="$kit/spec.yaml"
+		'server not ready after 30s' "$(spec_text "$kit")"
 
 	check "$kit runs the serve subcommand" \
 		'"ai-memory", "serve", "--transport", "http", "--bind", "127.0.0.1:49374"' \
-		"$(cat "$spec")"
+		"$(spec_text "$kit")"
 
-	check "$kit backgrounds the server" 'background: true' "$(cat "$spec")"
+	check "$kit backgrounds the server" 'background: true' "$(spec_text "$kit")"
 
 	check "$kit chowns the volume to the agent uid" \
-		'chown 1000:1000 /var/lib/ai-memory' "$(cat "$spec")"
+		'chown 1000:1000 /var/lib/ai-memory' "$(spec_text "$kit")"
 
 	check "$kit points the store at the volume" \
-		'AI_MEMORY_DATA_DIR: /var/lib/ai-memory' "$(cat "$spec")"
+		'AI_MEMORY_DATA_DIR: /var/lib/ai-memory' "$(spec_text "$kit")"
 done
 
 # The shared block is duplicated by necessity; assert the copies agree.
+# Normalised the same way as spec_text: indentation and line breaks are the
+# formatter's business, so only a real difference in content counts as drift.
 shared_block() {
 	sed -n '/^environment:/,$p' "$1/spec.yaml" |
-		grep -vE '^\s*#|^\s*$|MYSQL_|IS_SANDBOX'
+		grep -vE '^\s*#|^\s*$|MYSQL_|IS_SANDBOX' |
+		tr -s ' \n\t' ' '
 }
 
-if [[ "$(shared_block agents/coder)" == "$(shared_block agents/investigator)" ]]; then
-	printf 'ok   shared ai-memory block is identical across kits\n'
-	pass=$((pass + 1))
-else
-	printf 'FAIL shared ai-memory block has drifted between kits\n'
-	diff <(shared_block agents/coder) <(shared_block agents/investigator) | sed 's/^/     /'
-	fail=$((fail + 1))
-fi
+reference="${KITS[0]}"
+for kit in "${KITS[@]:1}"; do
+	if [[ "$(shared_block "$reference")" == "$(shared_block "$kit")" ]]; then
+		printf 'ok   %s shares the ai-memory block with %s\n' "$kit" "$reference"
+		pass=$((pass + 1))
+	else
+		printf 'FAIL %s has drifted from %s\n' "$kit" "$reference"
+		# Normalisation collapses the block onto one line, so diff it word by word
+		# rather than emitting two unreadable walls of text.
+		diff <(shared_block "$reference" | tr ' ' '\n') \
+			<(shared_block "$kit" | tr ' ' '\n') | sed 's/^/     /'
+		fail=$((fail + 1))
+	fi
+done
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
