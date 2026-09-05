@@ -10,6 +10,13 @@
 
 set -uo pipefail
 
+cd "$(dirname "$0")/.."
+
+# Same config the image was built from: the live cases assert that what the
+# template baked actually reaches the agent.
+CONFIG=config.json
+PLUGIN_COUNT="$(jq -r '.plugins | length' "$CONFIG")"
+
 SANDBOX="${1:-}"
 if [[ -z "$SANDBOX" ]]; then
 	printf 'usage: %s <sandbox-name>\n\n' "$0" >&2
@@ -118,7 +125,7 @@ check 'compose plugin reaches the nested engine' \
 # startup steps rewrite ~/.claude/settings.json, so whether the baked state
 # actually reaches the agent is only observable here.
 check 'baked plugins survive sandbox creation' \
-	'enabled=2 disabled=0' \
+	"enabled=$PLUGIN_COUNT disabled=0" \
 	'e=$(claude plugin list --json | grep -c "\"enabled\": true");
 	 d=$(claude plugin list --json | grep -c "\"enabled\": false");
 	 echo "enabled=$e disabled=$d"'
@@ -127,7 +134,7 @@ check 'baked plugins survive sandbox creation' \
 # documented as preserving unrelated entries; this is what proves it, because
 # losing extraKnownMarketplaces silently unloads every plugin.
 check 'plugin settings survive ai-memory hook registration' \
-	'claude-plugins-official,mattpocock' \
+	"$(jq -r '.plugins[] | split("@")[1]' "$CONFIG" | sort -u | paste -sd, -)" \
 	'node -e "const s=require(\"/home/agent/.claude/settings.json\"); console.log(Object.keys(s.extraKnownMarketplaces).sort().join(\",\"))"'
 
 check 'superpowers skills are readable in the sandbox' \

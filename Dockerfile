@@ -48,33 +48,26 @@ RUN npm install -g @benborla29/mcp-server-mysql
 # ~/.claude, so plugins installed by hand are gone the next time one is created
 # -- baking them is the only way the skills are there on first prompt.
 #
-# Override per project without editing this file:
-#   docker build --build-arg CLAUDE_PLUGINS="superpowers@claude-plugins-official \
-#     mattpocock-skills@mattpocock frontend-design@claude-plugins-official" .
-# Marketplaces are cloned at build time, so anything added to CLAUDE_PLUGINS
-# needs its marketplace in CLAUDE_MARKETPLACES too.
+# The list lives in config.json so changing it needs no build flags and no edit
+# here. Editing that file invalidates this layer, so a plain `make build` picks
+# the change up; a rebuild with an unchanged config reuses the cached layer and
+# keeps the plugin versions it resolved the first time. There is no version pin
+# to bump the way AI_MEMORY_VERSION is -- the plugin CLI always takes the
+# marketplace's current tip -- so use `docker build --no-cache-filter` on this
+# stage to pull in new releases.
 #
-# There is no version pin to bump the way AI_MEMORY_VERSION is: the plugin CLI
-# always installs the marketplace's current tip, and the result is then frozen
-# in this layer. A plain rebuild keeps whatever was resolved the first time --
-# use `docker build --no-cache-filter` on this stage to pick up new releases.
-ARG CLAUDE_MARKETPLACES="anthropics/claude-plugins-official mattpocock/skills"
-ARG CLAUDE_PLUGINS="superpowers@claude-plugins-official mattpocock-skills@mattpocock"
-
-# Kept on PATH rather than deleted after the build: it is the same operation an
-# agent needs to add a plugin to its own running sandbox.
+# Both files are kept in the image rather than removed after the build: together
+# they are how an agent adds a plugin to, or repairs, its own running sandbox.
+COPY config.json /usr/local/share/jarvis-engineer/config.json
 COPY scripts/install-claude-plugins.sh /usr/local/bin/install-claude-plugins
 
 # Runs as the agent, not root: `plugin install` records absolute installPaths in
 # ~/.claude/plugins/installed_plugins.json, so installing as root would bake
 # /root paths that uid 1000 cannot read -- the same trap mise fell into above.
-# `su` alone does not set HOME, and $CLAUDE_* are root's build args, so both are
-# passed explicitly.
+# `su` alone does not set HOME, so it is passed explicitly.
 RUN chmod 0755 /usr/local/bin/install-claude-plugins \
- && su agent -s /bin/sh -c "HOME=/home/agent \
-      CLAUDE_MARKETPLACES='${CLAUDE_MARKETPLACES}' \
-      CLAUDE_PLUGINS='${CLAUDE_PLUGINS}' \
-      install-claude-plugins"
+ && chmod 0644 /usr/local/share/jarvis-engineer/config.json \
+ && su agent -s /bin/sh -c "HOME=/home/agent install-claude-plugins"
 
 # Fail the build rather than ship an image whose tools the agent cannot reach.
 RUN su agent -s /bin/sh -c 'ai-memory --version' \

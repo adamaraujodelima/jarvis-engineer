@@ -11,8 +11,21 @@
 
 set -uo pipefail
 
+cd "$(dirname "$0")/.."
+
 IMAGE="${1:-jarvis-engineer:latest}"
 HOOKS_DIR=/usr/local/share/ai-memory/hooks
+
+# The plugin cases are driven by the same config the build reads, so the suite
+# fails when the image and the config disagree rather than when a list hardcoded
+# here goes stale.
+CONFIG=config.json
+IMAGE_CONFIG=/usr/local/share/jarvis-engineer/config.json
+
+plugins=()
+while IFS= read -r plugin; do
+	plugins+=("$plugin")
+done < <(jq -r '.plugins[]' "$CONFIG")
 
 pass=0
 fail=0
@@ -141,18 +154,31 @@ check 'agent user is in the docker group' \
 # is created. `claude plugin list --json` is asserted rather than the on-disk
 # JSON because it is the same resolution path the agent itself uses -- a plugin
 # present in the cache but absent from the settings is not actually loaded.
-check 'superpowers is installed and enabled' \
-	'"enabled": true' \
-	'claude plugin list --json | grep -A3 "superpowers@claude-plugins-official"'
 
-check 'mattpocock-skills is installed and enabled' \
-	'"enabled": true' \
-	'claude plugin list --json | grep -A3 "mattpocock-skills@mattpocock"'
+# An empty list would let every case below pass against an image with no
+# plugins at all, so it is a failure in its own right.
+if [[ ${#plugins[@]} -eq 0 ]]; then
+	printf 'FAIL %s lists no plugins; the cases below would pass vacuously\n' "$CONFIG"
+	fail=$((fail + 1))
+fi
+
+# The image carries the config it was built from: that is what lets
+# `install-claude-plugins` re-run inside a sandbox with no arguments, and what
+# makes a mismatch between config and image observable at all.
+check 'template ships the config it was built from' \
+	"$(cat "$CONFIG")" \
+	"cat $IMAGE_CONFIG"
+
+for plugin in "${plugins[@]}"; do
+	check "$plugin is installed and enabled" \
+		'"enabled": true' \
+		"claude plugin list --json | grep -A3 \"$plugin\""
+done
 
 # Counted, not just grepped for absence: `grep -c false` on an empty plugin list
 # also reports 0, so it would pass against an image with no plugins at all.
-check 'both baked plugins are enabled and none disabled' \
-	'enabled=2 disabled=0' \
+check 'every configured plugin is enabled and none disabled' \
+	"enabled=${#plugins[@]} disabled=0" \
 	'e=$(claude plugin list --json | grep -c "\"enabled\": true");
 	 d=$(claude plugin list --json | grep -c "\"enabled\": false");
 	 echo "enabled=$e disabled=$d"'
@@ -165,8 +191,11 @@ check 'plugin cache is recorded under the agent home' \
 
 # The cache is only half the state: without the marketplace declared in user
 # settings, Claude Code cannot refresh or re-resolve the plugin at runtime.
-check 'both marketplaces are declared in user settings' \
-	'claude-plugins-official,mattpocock' \
+# Derived from the plugin ids rather than from `.marketplaces`: a marketplace's
+# name comes from its manifest, not its repo path, and what has to be declared
+# is precisely the set the installed plugins resolve through.
+check 'every plugin marketplace is declared in user settings' \
+	"$(jq -r '.plugins[] | split("@")[1]' "$CONFIG" | sort -u | paste -sd, -)" \
 	'node -e "const s=require(\"/home/agent/.claude/settings.json\"); console.log(Object.keys(s.extraKnownMarketplaces).sort().join(\",\"))"'
 
 # Proves the skills actually landed on disk and are readable at uid 1000, not
