@@ -1,0 +1,178 @@
+schemaVersion: "2"
+kind: sandbox
+name: jarvis-planner
+extends: claude
+displayName: Jarvis Planner
+description: "Plans and organizes tasks based on the available information. Use when you need to create schedules, allocate resources, or develop strategies. Does not implement code or make changes to the system — focuses solely on planning and organization."
+
+sandbox:
+  # Without this the kit falls back to the stock claude image, which carries
+  # neither ai-memory nor the mysql MCP server.
+  image: jarvis-engineer:latest
+  command:
+    - "--append-system-prompt-file"
+    - "/home/agent/planner.md"
+
+permissions:
+  network:
+    allow:
+      - "host.docker.internal"
+      - "gateway.docker.internal"
+      - "localhost:3306"
+      - "localhost"
+      - "github.com"
+      - "objects.githubusercontent.com"
+      - "proxy.golang.org"
+
+# --- shared ai-memory block ---------------------------------------------
+# Duplicated verbatim in agents/coder/spec.yaml. It cannot be factored into a
+# parent kit: `extends` only resolves built-in agents, and pointing it at a
+# local kit yields an empty parent while `sbx kit validate` still reports VALID.
+# scripts/verify-kits.sh asserts the two copies stay in agreement.
+
+environment:
+  variables:
+    IS_SANDBOX: "1"
+
+    # NOTE: these are carried over unchanged from the previous spec, but v2
+    # `environment.variables` does no host-env interpolation -- only ${WORKDIR}
+    # is a placeholder, and only inside setup.files content. These therefore
+    # reach the container as the literal text "$MYSQL_HOST". Pass the real
+    # values at creation time instead: sbx create --env-file .env ...
+    MYSQL_HOST: $MYSQL_HOST
+    MYSQL_PORT: $MYSQL_PORT
+    MYSQL_USER: $MYSQL_USER
+    MYSQL_PASS: $MYSQL_PASS
+
+    # Redirect the store off the container's ephemeral filesystem and onto the
+    # volume below. Not under /home/agent: home-mounted volumes come up
+    # root:root, and agent config there is reset on sandbox creation anyway.
+    AI_MEMORY_DATA_DIR: /var/lib/ai-memory
+
+volumes:
+  - path: /var/lib/ai-memory
+    size: 5g
+    mode: "0755"
+
+setup:
+  install:
+    # Volumes are mounted before install runs, and install runs as root, so this
+    # is the only place the volume's root:root ownership can be handed over.
+    - command: "chown 1000:1000 /var/lib/ai-memory"
+      description: Give the agent user ownership of the memory volume
+
+  startup:
+    # The store now outlives the container, so a serve lock can survive an
+    # unclean stop. Every start is a fresh PID namespace, so any lock still on
+    # the volume at this point is by definition stale.
+    - command:
+        [
+          "sh",
+          "-c",
+          "rm -f /var/lib/ai-memory/.serve.lock /var/lib/ai-memory/.serve.lock.holder",
+        ]
+      description: Clear a serve lock left behind by an unclean shutdown
+
+    - command: ["ai-memory", "init"]
+      description: Ensure the data directory layout exists
+
+    # ~/.claude.json and ~/.claude/ are reset on sandbox creation, so MCP and
+    # hook registration cannot be baked into the image and must re-run here.
+    # Both are idempotent and preserve unrelated entries.
+    - command:
+        ["ai-memory", "install-mcp", "--client", "claude-code", "--apply"]
+      description: Register the ai-memory MCP server with Claude Code
+
+    - command:
+        ["ai-memory", "install-hooks", "--agent", "claude-code", "--apply"]
+      description: Register ai-memory lifecycle hooks with Claude Code
+
+    # Must be last, and must be backgrounded: startup steps run sequentially to
+    # completion, so a foreground server would block sandbox startup forever.
+    - command:
+        [
+          "ai-memory",
+          "serve",
+          "--transport",
+          "http",
+          "--bind",
+          "127.0.0.1:49374",
+        ]
+      background: true
+      description: Run the ai-memory MCP server on loopback
+
+    # `background: true` means the agent would otherwise launch while the server
+    # is still binding, and its MCP connection would fail. Later startup steps
+    # run only after this one returns, so polling here gates the agent on
+    # readiness. Bounded and always exits 0: a server that never comes up must
+    # degrade to "memory unavailable", not "sandbox will not start".
+    - command:
+        [
+          "sh",
+          "-c",
+          'for i in $(seq 1 30); do curl -fsS -o /dev/null -X POST -H ''Content-Type: application/json'' -H ''Accept: application/json, text/event-stream'' -d ''{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"startup","version":"0"}}}'' http://127.0.0.1:49374/mcp && exit 0; sleep 1; done; echo ''ai-memory: server not ready after 30s; continuing without memory'' >&2; exit 0',
+        ]
+      description: Wait for the ai-memory server to accept MCP requests
+
+    # --- mysql over the sandbox's HTTP proxy ----------------------------
+    # sbx gives sandboxes no raw TCP egress: everything leaves through the HTTP
+    # CONNECT proxy at gateway.docker.internal:3128. mysql2 speaks raw TCP, so a
+    # direct connection reaches a NAT stub and is closed with zero bytes
+    # (surfacing as PROTOCOL_CONNECTION_LOST). socat bridges the two by speaking
+    # CONNECT upstream and presenting a plain TCP socket on loopback.
+    #
+    # The upstream host is "localhost" because the proxy resolves names on the
+    # host side; note the allowlist must also name localhost:3306 --
+    # host.docker.internal:3306 is accepted as a rule but never matches.
+    - command:
+        [
+          "socat",
+          "TCP-LISTEN:3306,bind=127.0.0.1,fork,reuseaddr",
+          "PROXY:gateway.docker.internal:localhost:3306,proxyport=3128",
+        ]
+      background: true
+      description: Tunnel loopback 3306 to the host's MySQL via the HTTP proxy
+
+    # Registered here rather than baked into the image because ~/.claude.json is
+    # reset on sandbox creation. MYSQL_USER/MYSQL_PASS are deliberately NOT
+    # passed with -e: the server inherits them from the sandbox environment, so
+    # the password never lands in a config file. Supply them at creation time:
+    #   sbx create --env-file .env --kit agents/coder jarvis-coder .
+    - command:
+        - "sh"
+        - "-c"
+        - |
+          # Startup steps run with a narrower PATH than an interactive shell or
+          # `sbx exec`: it omits ~/.local/bin, where the claude CLI lives, so a
+          # bare `claude` here exits 127. Prefer the stable symlink over the
+          # versioned binary it points at.
+          CLAUDE=/home/agent/.local/bin/claude
+          [ -x "$CLAUDE" ] || CLAUDE=$(command -v claude 2>/dev/null)
+
+          if [ -z "$MYSQL_USER" ]; then
+            echo "mysql: MYSQL_USER unset, skipping registration (pass --env-file)" >&2
+            exit 0
+          fi
+          if [ -z "$CLAUDE" ]; then
+            echo "mysql: claude CLI not found, skipping registration" >&2
+            exit 0
+          fi
+
+          socat -u /dev/null TCP:127.0.0.1:3306,connect-timeout=5 >/dev/null 2>&1 \
+            || echo "mysql: tunnel not answering on 127.0.0.1:3306" >&2
+
+          "$CLAUDE" mcp remove -s user mysql >/dev/null 2>&1
+          "$CLAUDE" mcp add -s user mysql \
+            -e MYSQL_HOST=127.0.0.1 \
+            -e MYSQL_PORT=3306 \
+            -e ALLOW_INSERT_OPERATION=false \
+            -e ALLOW_UPDATE_OPERATION=false \
+            -e ALLOW_DELETE_OPERATION=false \
+            -e ALLOW_DDL_OPERATION=false \
+            -- npx -y @benborla29/mcp-server-mysql \
+            || echo "mysql: MCP registration failed" >&2
+
+          # A non-zero exit from any startup step silently aborts every later
+          # step, so this must always succeed.
+          exit 0
+      description: Register the read-only MySQL MCP server with Claude Code

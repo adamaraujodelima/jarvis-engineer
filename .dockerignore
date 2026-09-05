@@ -1,0 +1,13 @@
+.git
+.gitignore
+.idea
+*.tar
+agent.log
+latest
+.env
+docs
+scripts
+# ...except the one script the image itself installs.
+!scripts/install-claude-plugins.sh
+agents
+config

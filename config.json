@@ -1,0 +1,10 @@
+{
+  "marketplaces": [
+    "anthropics/claude-plugins-official",
+    "mattpocock/skills"
+  ],
+  "plugins": [
+    "superpowers@claude-plugins-official",
+    "mattpocock-skills@mattpocock"
+  ]
+}

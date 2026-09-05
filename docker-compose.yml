@@ -1,0 +1,6 @@
+services:
+  sdk:
+    image: jarvis-engineer:latest
+    build: .
+    env_file:
+      - .env
