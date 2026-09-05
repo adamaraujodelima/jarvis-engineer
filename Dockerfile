@@ -44,10 +44,44 @@ RUN mise use -g "github:akitaonrails/ai-memory@${AI_MEMORY_VERSION}" \
 
 RUN npm install -g @benborla29/mcp-server-mysql
 
+# Bake the Claude Code plugins into the template. A sandbox gets a fresh
+# ~/.claude, so plugins installed by hand are gone the next time one is created
+# -- baking them is the only way the skills are there on first prompt.
+#
+# Override per project without editing this file:
+#   docker build --build-arg CLAUDE_PLUGINS="superpowers@claude-plugins-official \
+#     mattpocock-skills@mattpocock frontend-design@claude-plugins-official" .
+# Marketplaces are cloned at build time, so anything added to CLAUDE_PLUGINS
+# needs its marketplace in CLAUDE_MARKETPLACES too.
+#
+# There is no version pin to bump the way AI_MEMORY_VERSION is: the plugin CLI
+# always installs the marketplace's current tip, and the result is then frozen
+# in this layer. A plain rebuild keeps whatever was resolved the first time --
+# use `docker build --no-cache-filter` on this stage to pick up new releases.
+ARG CLAUDE_MARKETPLACES="anthropics/claude-plugins-official mattpocock/skills"
+ARG CLAUDE_PLUGINS="superpowers@claude-plugins-official mattpocock-skills@mattpocock"
+
+# Kept on PATH rather than deleted after the build: it is the same operation an
+# agent needs to add a plugin to its own running sandbox.
+COPY scripts/install-claude-plugins.sh /usr/local/bin/install-claude-plugins
+
+# Runs as the agent, not root: `plugin install` records absolute installPaths in
+# ~/.claude/plugins/installed_plugins.json, so installing as root would bake
+# /root paths that uid 1000 cannot read -- the same trap mise fell into above.
+# `su` alone does not set HOME, and $CLAUDE_* are root's build args, so both are
+# passed explicitly.
+RUN chmod 0755 /usr/local/bin/install-claude-plugins \
+ && su agent -s /bin/sh -c "HOME=/home/agent \
+      CLAUDE_MARKETPLACES='${CLAUDE_MARKETPLACES}' \
+      CLAUDE_PLUGINS='${CLAUDE_PLUGINS}' \
+      install-claude-plugins"
+
 # Fail the build rather than ship an image whose tools the agent cannot reach.
 RUN su agent -s /bin/sh -c 'ai-memory --version' \
  && su agent -s /bin/sh -c 'test -x /usr/local/share/ai-memory/hooks/claude-code/session-start.sh' \
  && command -v dockerd >/dev/null \
- && id -nG agent | grep -qw docker
+ && id -nG agent | grep -qw docker \
+ && su agent -s /bin/sh -c 'HOME=/home/agent /home/agent/.local/bin/claude plugin list --json' \
+      | grep -q '"enabled": true'
 
 USER agent

@@ -113,5 +113,26 @@ check 'compose plugin reaches the nested engine' \
 	'NAME' \
 	'docker compose ls 2>&1'
 
+# --- claude code plugins ------------------------------------------------
+# The image bakes the plugins, but a sandbox gets a fresh ~/.claude and its
+# startup steps rewrite ~/.claude/settings.json, so whether the baked state
+# actually reaches the agent is only observable here.
+check 'baked plugins survive sandbox creation' \
+	'enabled=2 disabled=0' \
+	'e=$(claude plugin list --json | grep -c "\"enabled\": true");
+	 d=$(claude plugin list --json | grep -c "\"enabled\": false");
+	 echo "enabled=$e disabled=$d"'
+
+# `ai-memory install-hooks --apply` rewrites settings.json on every start. It is
+# documented as preserving unrelated entries; this is what proves it, because
+# losing extraKnownMarketplaces silently unloads every plugin.
+check 'plugin settings survive ai-memory hook registration' \
+	'claude-plugins-official,mattpocock' \
+	'node -e "const s=require(\"/home/agent/.claude/settings.json\"); console.log(Object.keys(s.extraKnownMarketplaces).sort().join(\",\"))"'
+
+check 'superpowers skills are readable in the sandbox' \
+	'brainstorming' \
+	'ls /home/agent/.claude/plugins/cache/claude-plugins-official/superpowers/*/skills'
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

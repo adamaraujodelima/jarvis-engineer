@@ -135,5 +135,45 @@ check 'agent user is in the docker group' \
 	'docker' \
 	'id -nG agent'
 
+# --- claude code plugins ------------------------------------------------
+# Baking the plugins is the point of the template: a sandbox's ~/.claude is
+# recreated per sandbox, so anything installed by hand is gone the next time one
+# is created. `claude plugin list --json` is asserted rather than the on-disk
+# JSON because it is the same resolution path the agent itself uses -- a plugin
+# present in the cache but absent from the settings is not actually loaded.
+check 'superpowers is installed and enabled' \
+	'"enabled": true' \
+	'claude plugin list --json | grep -A3 "superpowers@claude-plugins-official"'
+
+check 'mattpocock-skills is installed and enabled' \
+	'"enabled": true' \
+	'claude plugin list --json | grep -A3 "mattpocock-skills@mattpocock"'
+
+# Counted, not just grepped for absence: `grep -c false` on an empty plugin list
+# also reports 0, so it would pass against an image with no plugins at all.
+check 'both baked plugins are enabled and none disabled' \
+	'enabled=2 disabled=0' \
+	'e=$(claude plugin list --json | grep -c "\"enabled\": true");
+	 d=$(claude plugin list --json | grep -c "\"enabled\": false");
+	 echo "enabled=$e disabled=$d"'
+
+# `plugin install` writes absolute installPaths. Installing as root would record
+# /root/.claude/... -- unreadable at uid 1000, exactly the trap mise fell into.
+check 'plugin cache is recorded under the agent home' \
+	'"installPath": "/home/agent/.claude/plugins/cache' \
+	'claude plugin list --json | grep installPath'
+
+# The cache is only half the state: without the marketplace declared in user
+# settings, Claude Code cannot refresh or re-resolve the plugin at runtime.
+check 'both marketplaces are declared in user settings' \
+	'claude-plugins-official,mattpocock' \
+	'node -e "const s=require(\"/home/agent/.claude/settings.json\"); console.log(Object.keys(s.extraKnownMarketplaces).sort().join(\",\"))"'
+
+# Proves the skills actually landed on disk and are readable at uid 1000, not
+# merely that the installer claimed success.
+check 'superpowers skills are readable by the agent' \
+	'brainstorming' \
+	'ls /home/agent/.claude/plugins/cache/claude-plugins-official/superpowers/*/skills'
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
