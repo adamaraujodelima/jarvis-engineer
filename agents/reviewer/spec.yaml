@@ -2,8 +2,8 @@ schemaVersion: "2"
 kind: sandbox
 name: jarvis-reviewer
 extends: claude
-displayName: Jarvis reviewer
-description: "Reviews implementations and fixes in the monorepo against software-engineering best practice and this project's standards, then writes the findings to docs/code-review/. Use when a branch, working-tree diff, or specific change set needs a quality/correctness/security assessment. Read-only — it never edits source, never commits, never writes to Jira or Confluence."
+displayName: Jarvis Reviewer
+description: "Reviews implementations and fixes in the monorepo against software-engineering best practice and this project's standards, and reports the findings. Use when a branch, working-tree diff, or specific change set needs a quality/correctness/security assessment. Read-only — it never edits source, never commits, and never writes to Jira or Confluence."
 
 sandbox:
   # Without this the kit falls back to the stock claude image, which carries
@@ -16,34 +16,28 @@ sandbox:
 permissions:
   network:
     allow:
+      # --- base: identical in every kit ------------------------------------
+      # localhost:3306, not host.docker.internal:3306 -- the latter is accepted
+      # as a rule but never matches, because enforcement normalises the name to
+      # localhost. See the socat tunnel in the shared block below.
       - "host.docker.internal"
       - "gateway.docker.internal"
       - "localhost:3306"
-      - "localhost"
       - "github.com"
+      - "api.github.com"
+      - "raw.githubusercontent.com"
       - "objects.githubusercontent.com"
       - "proxy.golang.org"
+      - "code.claude.com"
 
 # --- shared ai-memory block ---------------------------------------------
-# Duplicated verbatim in agents/coder/spec.yaml. It cannot be factored into a
+# Duplicated verbatim in every agents/*/spec.yaml. It cannot be factored into a
 # parent kit: `extends` only resolves built-in agents, and pointing it at a
 # local kit yields an empty parent while `sbx kit validate` still reports VALID.
-# scripts/verify-kits.sh asserts the two copies stay in agreement.
+# scripts/verify-kits.sh asserts the copies stay in agreement.
 
 environment:
   variables:
-    IS_SANDBOX: "1"
-
-    # NOTE: these are carried over unchanged from the previous spec, but v2
-    # `environment.variables` does no host-env interpolation -- only ${WORKDIR}
-    # is a placeholder, and only inside setup.files content. These therefore
-    # reach the container as the literal text "$MYSQL_HOST". Pass the real
-    # values at creation time instead: sbx create --env-file .env ...
-    MYSQL_HOST: $MYSQL_HOST
-    MYSQL_PORT: $MYSQL_PORT
-    MYSQL_USER: $MYSQL_USER
-    MYSQL_PASS: $MYSQL_PASS
-
     # Redirect the store off the container's ephemeral filesystem and onto the
     # volume below. Not under /home/agent: home-mounted volumes come up
     # root:root, and agent config there is reset on sandbox creation anyway.
@@ -86,6 +80,21 @@ setup:
     - command:
         ["ai-memory", "install-hooks", "--agent", "claude-code", "--apply"]
       description: Register ai-memory lifecycle hooks with Claude Code
+
+    # The image bakes the Claude Code plugins, but `sbx create` writes
+    # ~/.claude/settings.json from scratch, dropping `enabledPlugins` and
+    # `extraKnownMarketplaces` -- the plugin cache survives while every plugin
+    # comes up disabled. This merges the baked keys back in. It runs after
+    # install-hooks so the last writer of that file is not the one that could
+    # drop them. Wrapped so a failure only warns: a non-zero startup step
+    # silently aborts every later step.
+    - command:
+        [
+          "sh",
+          "-c",
+          "restore-claude-plugins || echo 'plugins: could not restore the baked plugin settings' >&2; exit 0",
+        ]
+      description: Re-enable the plugins baked into the template
 
     # Must be last, and must be backgrounded: startup steps run sequentially to
     # completion, so a foreground server would block sandbox startup forever.

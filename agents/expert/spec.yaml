@@ -3,9 +3,11 @@ kind: sandbox
 name: jarvis-expert
 extends: claude
 displayName: Jarvis Domain Expert
-description: "Technical domain expert that can answer questions, provide guidance, and explain concepts in a specific field. Use when you need expert knowledge or advice on a particular subject matter."
+description: "Answers questions about how the system works by tracing the codebase, tests, configuration, and database, connecting business rules to their concrete implementation. Use when you need to understand existing behavior or a domain concept. Read-only — it never modifies code, implements fixes, or refactors."
 
 sandbox:
+  # Without this the kit falls back to the stock claude image, which carries
+  # neither ai-memory nor the mysql MCP server.
   image: jarvis-engineer:latest
   command:
     - "--append-system-prompt-file"
@@ -14,23 +16,25 @@ sandbox:
 permissions:
   network:
     allow:
+      # --- base: identical in every kit ------------------------------------
+      # localhost:3306, not host.docker.internal:3306 -- the latter is accepted
+      # as a rule but never matches, because enforcement normalises the name to
+      # localhost. See the socat tunnel in the shared block below.
       - "host.docker.internal"
       - "gateway.docker.internal"
       - "localhost:3306"
       - "github.com"
-      - "raw.githubusercontent.com"
       - "api.github.com"
+      - "raw.githubusercontent.com"
       - "objects.githubusercontent.com"
       - "proxy.golang.org"
-      - "registry.npmjs.org"
-      - "registry.yarnpkg.com"
       - "code.claude.com"
 
 # --- shared ai-memory block ---------------------------------------------
-# Duplicated verbatim in agents/investigator/spec.yaml. It cannot be factored
-# into a parent kit: `extends` only resolves built-in agents, and pointing it at
-# a local kit yields an empty parent while `sbx kit validate` still reports
-# VALID. scripts/verify-kits.sh asserts the two copies stay in agreement.
+# Duplicated verbatim in every agents/*/spec.yaml. It cannot be factored into a
+# parent kit: `extends` only resolves built-in agents, and pointing it at a
+# local kit yields an empty parent while `sbx kit validate` still reports VALID.
+# scripts/verify-kits.sh asserts the copies stay in agreement.
 
 environment:
   variables:
@@ -76,6 +80,21 @@ setup:
     - command:
         ["ai-memory", "install-hooks", "--agent", "claude-code", "--apply"]
       description: Register ai-memory lifecycle hooks with Claude Code
+
+    # The image bakes the Claude Code plugins, but `sbx create` writes
+    # ~/.claude/settings.json from scratch, dropping `enabledPlugins` and
+    # `extraKnownMarketplaces` -- the plugin cache survives while every plugin
+    # comes up disabled. This merges the baked keys back in. It runs after
+    # install-hooks so the last writer of that file is not the one that could
+    # drop them. Wrapped so a failure only warns: a non-zero startup step
+    # silently aborts every later step.
+    - command:
+        [
+          "sh",
+          "-c",
+          "restore-claude-plugins || echo 'plugins: could not restore the baked plugin settings' >&2; exit 0",
+        ]
+      description: Re-enable the plugins baked into the template
 
     # Must be last, and must be backgrounded: startup steps run sequentially to
     # completion, so a foreground server would block sandbox startup forever.
@@ -127,7 +146,7 @@ setup:
     # reset on sandbox creation. MYSQL_USER/MYSQL_PASS are deliberately NOT
     # passed with -e: the server inherits them from the sandbox environment, so
     # the password never lands in a config file. Supply them at creation time:
-    #   sbx create --env-file .env --kit agents/expert jarvis-expert .
+    #   sbx create --env-file .env --kit agents/coder jarvis-coder .
     - command:
         - "sh"
         - "-c"

@@ -1,9 +1,9 @@
 schemaVersion: "2"
 kind: sandbox
-name: jarvis-planner
+name: jarvis-architect
 extends: claude
-displayName: Jarvis Planner
-description: "Turns requirements and investigation findings into implementable development plans for the monorepo. Use when a change needs to be scoped into concrete files, steps, tests, and validation before implementation begins. Does not implement code or make changes — planning only."
+displayName: Jarvis Architect
+description: "Designs and reviews system architecture, service boundaries, APIs, data models, and integration patterns for the monorepo. Use when a change needs an architectural decision, or an existing design needs assessment against concrete trade-offs. Does not implement code — design and review only."
 
 sandbox:
   # Without this the kit falls back to the stock claude image, which carries
@@ -11,7 +11,7 @@ sandbox:
   image: jarvis-engineer:latest
   command:
     - "--append-system-prompt-file"
-    - "/home/agent/planner.md"
+    - "/home/agent/architect.md"
 
 permissions:
   network:

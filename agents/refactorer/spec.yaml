@@ -1,9 +1,9 @@
 schemaVersion: "2"
 kind: sandbox
-name: jarvis-planner
+name: jarvis-refactorer
 extends: claude
-displayName: Jarvis Planner
-description: "Turns requirements and investigation findings into implementable development plans for the monorepo. Use when a change needs to be scoped into concrete files, steps, tests, and validation before implementation begins. Does not implement code or make changes — planning only."
+displayName: Jarvis Refactorer
+description: "Improves the internal structure, readability, and maintainability of existing code in the monorepo without changing externally observable behavior. Use when working code needs restructuring under its existing tests. Never mixes behavioral changes into a refactoring, and never commits."
 
 sandbox:
   # Without this the kit falls back to the stock claude image, which carries
@@ -11,7 +11,7 @@ sandbox:
   image: jarvis-engineer:latest
   command:
     - "--append-system-prompt-file"
-    - "/home/agent/planner.md"
+    - "/home/agent/refactorer.md"
 
 permissions:
   network:
@@ -29,6 +29,11 @@ permissions:
       - "objects.githubusercontent.com"
       - "proxy.golang.org"
       - "code.claude.com"
+      # --- code-writing kits only ------------------------------------------
+      # coder and refactorer are the only kits that install dependencies; the
+      # read-only kits deliberately have no package-registry egress.
+      - "registry.npmjs.org"
+      - "registry.yarnpkg.com"
 
 # --- shared ai-memory block ---------------------------------------------
 # Duplicated verbatim in every agents/*/spec.yaml. It cannot be factored into a

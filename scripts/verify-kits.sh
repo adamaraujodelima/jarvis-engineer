@@ -33,6 +33,36 @@ spec_text() {
 	tr -s ' \n\t' ' ' <"$1/spec.yaml"
 }
 
+# The hosts every kit must allow. The permissions block sits *above* the shared
+# ai-memory block, so the drift comparison at the bottom of this file (which
+# starts at `environment:`) never sees it -- which is how three kits ended up
+# carrying a bare `localhost` rule that nothing needed and two kits ended up
+# with package-registry egress they never use.
+BASE_ALLOW=(
+	host.docker.internal
+	gateway.docker.internal
+	localhost:3306
+	github.com
+	api.github.com
+	raw.githubusercontent.com
+	objects.githubusercontent.com
+	proxy.golang.org
+	code.claude.com
+)
+
+# missing_base <kit> -- "COMPLETE", or the hosts absent from the allowlist.
+missing_base() {
+	local host missing=""
+	for host in "${BASE_ALLOW[@]}"; do
+		grep -qF "\"$host\"" "$1/spec.yaml" || missing="$missing $host"
+	done
+	if [[ -n "$missing" ]]; then
+		printf 'MISSING:%s' "$missing"
+	else
+		printf 'COMPLETE'
+	fi
+}
+
 # check <name> <expected-substring> <actual>
 check() {
 	local name="$1" expected="$2" actual="$3"
@@ -61,12 +91,28 @@ for kit in "${KITS[@]}"; do
 		'jarvis-engineer:latest' "$inspected"
 
 	check "$kit declares the memory volume + startup steps" \
-		'8 startup' "$inspected"
+		'9 startup' "$inspected"
+
+	# The image bakes the plugins, but `sbx create` rewrites
+	# ~/.claude/settings.json and drops the keys that load them, so a kit
+	# without this step hands the agent a sandbox with every plugin disabled.
+	check "$kit restores the baked plugin settings" \
+		'restore-claude-plugins' "$(spec_text "$kit")"
 
 	# host.docker.internal:3306 is accepted as a rule but never matches, because
 	# enforcement normalises that name to localhost. Assert the rule that works.
 	check "$kit allows mysql on the name enforcement matches" \
 		'"localhost:3306"' "$(spec_text "$kit")"
+
+	check "$kit declares the base network allowlist" \
+		'COMPLETE' "$(missing_base "$kit")"
+
+	# Redundant with localhost:3306 -- loopback is the only thing it could
+	# widen, and the tunnel is the only loopback port that leaves the sandbox.
+	check "$kit carries no bare localhost rule" \
+		'CLEAN' \
+		"$(grep -qE '^[[:space:]]*-[[:space:]]*"localhost"[[:space:]]*$' "$kit/spec.yaml" \
+			&& echo REDUNDANT || echo CLEAN)"
 
 	check "$kit tunnels mysql through the CONNECT proxy" \
 		'PROXY:gateway.docker.internal:localhost:3306,proxyport=3128' \
@@ -109,14 +155,30 @@ for kit in "${KITS[@]}"; do
 
 	check "$kit points the store at the volume" \
 		'AI_MEMORY_DATA_DIR: /var/lib/ai-memory' "$(spec_text "$kit")"
+
+	# `environment.variables` does no host-env interpolation, so a "$VAR" value
+	# arrives as that literal text. Credentials must come from `sbx create
+	# --env-file .env`, never from the spec.
+	check "$kit declares no un-interpolated env placeholders" \
+		'CLEAN' \
+		"$(sed -n '/^environment:/,/^volumes:/p' "$kit/spec.yaml" \
+			| grep -qE '^[[:space:]]+[A-Z_]+:[[:space:]]*\$' \
+			&& echo LITERAL || echo CLEAN)"
 done
 
 # The shared block is duplicated by necessity; assert the copies agree.
 # Normalised the same way as spec_text: indentation and line breaks are the
 # formatter's business, so only a real difference in content counts as drift.
+#
+# This deliberately does NOT filter MYSQL_/IS_SANDBOX lines. It used to, and
+# that exemption is what hid three kits declaring `MYSQL_USER: $MYSQL_USER` in
+# `environment.variables` -- v2 does no host-env interpolation there, so the
+# container received the literal string "$MYSQL_USER". Non-empty literal
+# credentials defeat the `[ -z "$MYSQL_USER" ]` guard in the startup step, so
+# the MySQL MCP server registered against a garbage user instead of skipping.
 shared_block() {
 	sed -n '/^environment:/,$p' "$1/spec.yaml" |
-		grep -vE '^\s*#|^\s*$|MYSQL_|IS_SANDBOX' |
+		grep -vE '^\s*#|^\s*$' |
 		tr -s ' \n\t' ' '
 }
 

@@ -60,6 +60,7 @@ RUN npm install -g @benborla29/mcp-server-mysql
 # they are how an agent adds a plugin to, or repairs, its own running sandbox.
 COPY config.json /usr/local/share/jarvis-engineer/config.json
 COPY scripts/install-claude-plugins.sh /usr/local/bin/install-claude-plugins
+COPY scripts/restore-claude-plugins.sh /usr/local/bin/restore-claude-plugins
 
 # Runs as the agent, not root: `plugin install` records absolute installPaths in
 # ~/.claude/plugins/installed_plugins.json, so installing as root would bake
@@ -67,7 +68,34 @@ COPY scripts/install-claude-plugins.sh /usr/local/bin/install-claude-plugins
 # `su` alone does not set HOME, so it is passed explicitly.
 RUN chmod 0755 /usr/local/bin/install-claude-plugins \
  && chmod 0644 /usr/local/share/jarvis-engineer/config.json \
+ && chmod 0755 /usr/local/bin/restore-claude-plugins \
  && su agent -s /bin/sh -c "HOME=/home/agent install-claude-plugins"
+
+# Snapshot the two settings keys the install just wrote. `sbx create` recreates
+# ~/.claude/settings.json from scratch, so those keys never reach a sandbox --
+# the cache survives but every plugin comes up disabled. The kits' startup steps
+# merge this snapshot back with `restore-claude-plugins`, which is why it has to
+# live outside $HOME: everything under it is per-sandbox state.
+#
+# Snapshotted rather than derived from config.json: a marketplace's name comes
+# from its own manifest, not its repo path, so only the resolved settings say
+# which name each plugin id refers to.
+RUN node -e ' \
+      const fs = require("fs"); \
+      const s = JSON.parse(fs.readFileSync("/home/agent/.claude/settings.json", "utf8")); \
+      const keys = ["enabledPlugins", "extraKnownMarketplaces"]; \
+      for (const k of keys) { \
+        if (!s[k] || Object.keys(s[k]).length === 0) { \
+          console.error(`plugin install left ${k} empty`); \
+          process.exit(1); \
+        } \
+      } \
+      const out = {}; \
+      for (const k of keys) out[k] = s[k]; \
+      fs.writeFileSync("/usr/local/share/jarvis-engineer/plugin-settings.json", \
+        JSON.stringify(out, null, 2) + "\n"); \
+    ' \
+ && chmod 0644 /usr/local/share/jarvis-engineer/plugin-settings.json
 
 # Fail the build rather than ship an image whose tools the agent cannot reach.
 RUN su agent -s /bin/sh -c 'ai-memory --version' \
@@ -75,6 +103,9 @@ RUN su agent -s /bin/sh -c 'ai-memory --version' \
  && command -v dockerd >/dev/null \
  && id -nG agent | grep -qw docker \
  && su agent -s /bin/sh -c 'HOME=/home/agent /home/agent/.local/bin/claude plugin list --json' \
-      | grep -q '"enabled": true'
+      | grep -q '"enabled": true' \
+ && su agent -s /bin/sh -c 'HOME=/home/agent restore-claude-plugins' \
+ && ! su agent -s /bin/sh -c 'HOME=/home/agent /home/agent/.local/bin/claude plugin list --json' \
+      | grep -q '"enabled": false'
 
 USER agent

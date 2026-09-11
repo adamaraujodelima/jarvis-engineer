@@ -21,6 +21,7 @@ HOOKS_DIR=/usr/local/share/ai-memory/hooks
 # here goes stale.
 CONFIG=config.json
 IMAGE_CONFIG=/usr/local/share/jarvis-engineer/config.json
+IMAGE_PLUGIN_SETTINGS=/usr/local/share/jarvis-engineer/plugin-settings.json
 
 plugins=()
 while IFS= read -r plugin; do
@@ -200,6 +201,51 @@ check 'every plugin marketplace is declared in user settings' \
 
 # Proves the skills actually landed on disk and are readable at uid 1000, not
 # merely that the installer claimed success.
+# --- plugin settings a sandbox has to restore ---------------------------
+# `sbx create` writes a fresh ~/.claude/settings.json, so the two plugin keys
+# above do not reach a sandbox at all. The cache under ~/.claude/plugins does
+# survive, so the repair is settings-only -- and it can only work if the image
+# carries a snapshot of those keys plus the script that re-applies them.
+check 'template ships a snapshot of the baked plugin settings' \
+	"$(jq -r '.plugins[] | split("@")[1]' "$CONFIG" | sort -u | paste -sd, -)" \
+	"node -e \"const s=require('$IMAGE_PLUGIN_SETTINGS'); console.log(Object.keys(s.extraKnownMarketplaces).sort().join(','))\""
+
+check 'snapshot enables every configured plugin' \
+	"$(jq -r '.plugins[]' "$CONFIG" | sort | paste -sd, -)" \
+	"node -e \"const s=require('$IMAGE_PLUGIN_SETTINGS'); console.log(Object.keys(s.enabledPlugins).filter(k => s.enabledPlugins[k]).sort().join(','))\""
+
+check 'restore-claude-plugins resolves on the agent PATH' \
+	'/usr/local/bin/restore-claude-plugins' \
+	'command -v restore-claude-plugins'
+
+# The case that mirrors what a sandbox does to the settings file: replace it
+# with the minimal one `sbx create` writes, then assert the repair brings every
+# plugin back as enabled -- via `plugin list`, the agent's own resolution path.
+check 'restore-claude-plugins re-enables plugins after settings are replaced' \
+	"enabled=${#plugins[@]} disabled=0" \
+	'printf "%s" "{\"model\":\"opus\"}" >~/.claude/settings.json;
+	 restore-claude-plugins >/dev/null 2>&1;
+	 e=$(claude plugin list --json | grep -c "\"enabled\": true");
+	 d=$(claude plugin list --json | grep -c "\"enabled\": false");
+	 echo "enabled=$e disabled=$d"'
+
+# ai-memory's hooks land in the same file, and sbx's own permissions/model
+# entries are what make the sandbox usable at all -- neither may be dropped.
+check 'restore-claude-plugins preserves unrelated settings' \
+	"KEPT ${#plugins[@]}" \
+	'printf "%s" "{\"model\":\"opus\"}" >~/.claude/settings.json;
+	 restore-claude-plugins >/dev/null 2>&1;
+	 node -e "const s=require(process.env.HOME+\"/.claude/settings.json\");
+	          console.log((s.model === \"opus\" ? \"KEPT\" : \"LOST\"),
+	                      Object.keys(s.enabledPlugins || {}).length)"'
+
+# Startup steps re-run per sandbox and a non-zero step silently aborts every
+# later step, so a second run must be a no-op rather than an error.
+check 'restore-claude-plugins is idempotent' \
+	'RUN2_OK' \
+	'restore-claude-plugins >/dev/null 2>&1;
+	 restore-claude-plugins >/dev/null 2>&1 && echo RUN2_OK'
+
 check 'superpowers skills are readable by the agent' \
 	'brainstorming' \
 	'ls /home/agent/.claude/plugins/cache/claude-plugins-official/superpowers/*/skills'
