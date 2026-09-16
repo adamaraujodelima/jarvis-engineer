@@ -246,6 +246,46 @@ check 'restore-claude-plugins is idempotent' \
 	'restore-claude-plugins >/dev/null 2>&1;
 	 restore-claude-plugins >/dev/null 2>&1 && echo RUN2_OK'
 
+# --- status line --------------------------------------------------------
+# Same shape as the plugin settings: `statusLine` is a settings.json key, so it
+# never survives `sbx create` and the kits re-register it per sandbox. What the
+# image has to carry is the script they point at.
+check 'jarvis-statusline resolves on the agent PATH' \
+	'/usr/local/bin/jarvis-statusline' \
+	'command -v jarvis-statusline'
+
+# Rendered from a real payload, not merely executed: the fields Claude Code
+# sends are nested, and a typo in one path silently drops that segment.
+check 'jarvis-statusline renders role, model, directory and branch' \
+	'CODER | Opus 5 | repo | trunk' \
+	'mkdir -p /tmp/repo && cd /tmp/repo &&
+	 git -c init.defaultBranch=trunk init -q . &&
+	 git -c user.email=v@v -c user.name=v commit -q --allow-empty -m init &&
+	 echo "{\"model\":{\"display_name\":\"Opus 5\"},\"workspace\":{\"current_dir\":\"/tmp/repo\"}}" \
+	   | JARVIS_ROLE=CODER jarvis-statusline'
+
+# The kits ship the label as ~/.jarvis-role rather than an env var, because
+# `environment.variables` is byte-compared across kits by verify-kits.sh.
+check 'jarvis-statusline reads the role label the kits ship' \
+	'PLANNER |' \
+	'printf "PLANNER\n" >~/.jarvis-role; echo "{}" | jarvis-statusline'
+
+# A status line that exits non-zero shows its stderr to the agent on every
+# turn, so the no-payload and no-label paths have to degrade, not fail.
+check 'jarvis-statusline degrades without a payload or a label' \
+	'AGENT |' \
+	'rm -f ~/.jarvis-role; jarvis-statusline </dev/null'
+
+# The registration is a startup step, and a non-zero startup step silently
+# aborts every later step -- so it must also be safe to re-run.
+check 'jarvis-statusline --install registers itself and preserves settings' \
+	'opus /usr/local/bin/jarvis-statusline' \
+	'printf "%s" "{\"model\":\"opus\"}" >~/.claude/settings.json;
+	 jarvis-statusline --install >/dev/null 2>&1;
+	 jarvis-statusline --install >/dev/null 2>&1;
+	 node -e "const s=require(process.env.HOME+\"/.claude/settings.json\");
+	          console.log(s.model, s.statusLine.command)"'
+
 check 'superpowers skills are readable by the agent' \
 	'brainstorming' \
 	'ls /home/agent/.claude/plugins/cache/claude-plugins-official/superpowers/*/skills'

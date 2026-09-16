@@ -62,6 +62,12 @@ COPY config.json /usr/local/share/jarvis-engineer/config.json
 COPY scripts/install-claude-plugins.sh /usr/local/bin/install-claude-plugins
 COPY scripts/restore-claude-plugins.sh /usr/local/bin/restore-claude-plugins
 
+# The status line renderer, and the one-shot that registers it. It has to be
+# installed here rather than shipped in a kit's files/: `sbx create` recreates
+# ~/.claude, so the registration re-runs per sandbox and the script it points at
+# must sit outside $HOME to survive that.
+COPY scripts/jarvis-statusline.sh /usr/local/bin/jarvis-statusline
+
 # Runs as the agent, not root: `plugin install` records absolute installPaths in
 # ~/.claude/plugins/installed_plugins.json, so installing as root would bake
 # /root paths that uid 1000 cannot read -- the same trap mise fell into above.
@@ -69,6 +75,7 @@ COPY scripts/restore-claude-plugins.sh /usr/local/bin/restore-claude-plugins
 RUN chmod 0755 /usr/local/bin/install-claude-plugins \
  && chmod 0644 /usr/local/share/jarvis-engineer/config.json \
  && chmod 0755 /usr/local/bin/restore-claude-plugins \
+ && chmod 0755 /usr/local/bin/jarvis-statusline \
  && su agent -s /bin/sh -c "HOME=/home/agent install-claude-plugins"
 
 # Snapshot the two settings keys the install just wrote. `sbx create` recreates
@@ -105,6 +112,8 @@ RUN su agent -s /bin/sh -c 'ai-memory --version' \
  && su agent -s /bin/sh -c 'HOME=/home/agent /home/agent/.local/bin/claude plugin list --json' \
       | grep -q '"enabled": true' \
  && su agent -s /bin/sh -c 'HOME=/home/agent restore-claude-plugins' \
+ && su agent -s /bin/sh -c 'HOME=/home/agent JARVIS_ROLE=CODER jarvis-statusline </dev/null' \
+      | grep -q '^CODER | ' \
  && ! su agent -s /bin/sh -c 'HOME=/home/agent /home/agent/.local/bin/claude plugin list --json' \
       | grep -q '"enabled": false'
 

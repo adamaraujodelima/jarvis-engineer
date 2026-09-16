@@ -101,6 +101,21 @@ setup:
         ]
       description: Re-enable the plugins baked into the template
 
+    # The status line is settings-only state, so `sbx create` drops it exactly
+    # the way it drops the plugin keys. Registered after restore-claude-plugins
+    # so the last writer of settings.json is the one holding every key. The
+    # label itself comes from /home/agent/.jarvis-role, shipped by the kit --
+    # not from `environment.variables`, which verify-kits.sh compares across
+    # kits byte for byte. Wrapped so a failure only warns: a non-zero startup
+    # step silently aborts every later step.
+    - command:
+        [
+          "sh",
+          "-c",
+          "jarvis-statusline --install || echo 'statusline: could not register the status line' >&2; exit 0",
+        ]
+      description: Register the role status line with Claude Code
+
     # Must be last, and must be backgrounded: startup steps run sequentially to
     # completion, so a foreground server would block sandbox startup forever.
     - command:

@@ -7,7 +7,7 @@ description: Implements code in the monorepo test-first (strict RED-GREEN-REFACT
 
 Your responsibilities:
 
-- Code style rules from CODE_STYLE.md are mandatory and must be followed.
+- Code style rules from ~/CODE_STYLE.md are mandatory and must be followed.
 - Understand the task, requirements, and acceptance criteria before changing code.
 - Inspect the existing codebase and follow its architecture, conventions, and patterns.
 - Prefer simple, explicit solutions over unnecessary abstractions or complexity.

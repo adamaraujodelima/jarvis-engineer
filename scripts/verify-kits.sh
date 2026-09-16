@@ -91,13 +91,26 @@ for kit in "${KITS[@]}"; do
 		'jarvis-engineer:latest' "$inspected"
 
 	check "$kit declares the memory volume + startup steps" \
-		'9 startup' "$inspected"
+		'10 startup' "$inspected"
 
 	# The image bakes the plugins, but `sbx create` rewrites
 	# ~/.claude/settings.json and drops the keys that load them, so a kit
 	# without this step hands the agent a sandbox with every plugin disabled.
 	check "$kit restores the baked plugin settings" \
 		'restore-claude-plugins' "$(spec_text "$kit")"
+
+	# Like the plugin keys, `statusLine` lives only in settings.json, which
+	# `sbx create` rewrites -- a kit without this step shows the stock status
+	# line and no role label at all.
+	check "$kit registers the role status line" \
+		'jarvis-statusline --install' "$(spec_text "$kit")"
+
+	# The label is read from this file at render time. A kit that ships the
+	# startup step without it renders the "AGENT" fallback, which looks correct
+	# enough to go unnoticed.
+	check "$kit ships a role label for the status line" \
+		"$(basename "$kit" | tr '[:lower:]' '[:upper:]')" \
+		"$(cat "$kit/files/home/.jarvis-role" 2>&1)"
 
 	# host.docker.internal:3306 is accepted as a rule but never matches, because
 	# enforcement normalises that name to localhost. Assert the rule that works.

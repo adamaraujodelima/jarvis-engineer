@@ -73,6 +73,12 @@ daemon, not just the CLI). On top of that, as root:
   a marketplace's _name_ comes from its own manifest, not from its repo path
   (`mattpocock/skills` resolves to the marketplace `mattpocock`).
 
+- installs `scripts/jarvis-statusline.sh` as `/usr/local/bin/jarvis-statusline`. It both renders
+  the status line (`ROLE | Model | directory | branch`) and, with `--install`, points
+  `~/.claude/settings.json` at itself. `statusLine` is settings-only state, so like the plugin
+  keys it is lost on every `sbx create` and has to be re-registered by a startup step; the script
+  it points at must therefore live outside `$HOME`.
+
 Every install is asserted at build time (not just "exit 0"), and again by `verify-image.sh`,
 because a sandbox's `~/.claude` is recreated fresh on every `sbx create` — anything installed by
 hand outside the image is lost, so "does it survive a fresh sandbox" is the real bar.
@@ -96,6 +102,11 @@ Two things about the persona files are worth knowing before editing them:
   layer stops those kits from editing files. Treat "read-only" in a description as intent, not a
   guarantee.
 
+Each kit also ships `files/home/.jarvis-role` — a single line such as `CODER` — which is the
+static role label the status line renders. It is a file rather than an `environment.variables`
+entry because `verify-kits.sh` byte-compares that block across kits, so a per-kit value there
+reads as drift. `$JARVIS_ROLE` overrides it; with neither, the line falls back to `AGENT`.
+
 The network allowlist is split into a base block shared by every kit and a `registry.npmjs.org` /
 `registry.yarnpkg.com` addition for the two kits that resolve dependencies (`coder`, `refactorer`).
 `verify-kits.sh` asserts the base is complete per kit, because the `permissions:` block sits above
@@ -114,6 +125,8 @@ resolves to an empty parent while `sbx kit validate` still reports `VALID`):
 - a `restore-claude-plugins` step that merges the image's plugin-settings snapshot back into
   `~/.claude/settings.json`. It runs _after_ `install-hooks` so the last writer of that file is not
   the one that could drop the keys, and it is wrapped to always exit 0
+- a `jarvis-statusline --install` step, after `restore-claude-plugins` for the same
+  last-writer reason, and wrapped to always exit 0
 - a `socat` tunnel that bridges MySQL: sandboxes have no raw TCP egress, only an HTTP CONNECT
   proxy at `gateway.docker.internal:3128`, so `socat` speaks CONNECT upstream and presents a plain
   TCP socket on `127.0.0.1:3306`. The proxy resolves the upstream hostname on the _host_ side, so
@@ -142,7 +155,7 @@ Three scripts, three different things they can prove:
    string and defeats the startup step's empty-check), and the shared-block drift check.
 3. `verify-sandbox.sh` — live checks against a running sandbox (`sbx exec ... `), for the things
    only observable at runtime: whether the MySQL tunnel actually reaches a real MySQL server (not
-   just a stub), whether plugin/MCP state survives the startup steps rewriting
+   just a stub), whether plugin/MCP/`statusLine` state survives the startup steps rewriting
    `~/.claude/settings.json`, whether nested Docker actually comes up.
 
 ## Known gaps

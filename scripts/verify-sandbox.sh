@@ -137,6 +137,17 @@ check 'plugin settings survive ai-memory hook registration' \
 	"$(jq -r '.plugins[] | split("@")[1]' "$CONFIG" | sort -u | paste -sd, -)" \
 	'node -e "const s=require(\"/home/agent/.claude/settings.json\"); console.log(Object.keys(s.extraKnownMarketplaces).sort().join(\",\"))"'
 
+# --- status line --------------------------------------------------------
+# Three startup steps write settings.json in sequence; only here is it
+# observable that the last of them left `statusLine` in place.
+check 'status line survives the startup steps' \
+	'/usr/local/bin/jarvis-statusline' \
+	'node -e "const s=require(\"/home/agent/.claude/settings.json\"); console.log(s.statusLine && s.statusLine.command)"'
+
+check 'status line renders the kit role label' \
+	"$(sbx exec "$SANDBOX" -- sh -c 'cat /home/agent/.jarvis-role' 2>/dev/null | tr -d '\r\n')" \
+	'jarvis-statusline </dev/null'
+
 check 'superpowers skills are readable in the sandbox' \
 	'brainstorming' \
 	'ls /home/agent/.claude/plugins/cache/claude-plugins-official/superpowers/*/skills'
