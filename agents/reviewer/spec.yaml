@@ -11,7 +11,7 @@ sandbox:
   image: jarvis-engineer:latest
   command:
     - "--append-system-prompt-file"
-    - "/home/agent/reviewer.md"
+    - "/home/agent/REVIEWER.md"
 
 permissions:
   network:

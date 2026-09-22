@@ -162,7 +162,7 @@ Three scripts, three different things they can prove:
 
 - `main.go` invokes `claude --append-system-prompt-file roles/CODER.md` / `roles/REVIEWER.md`, but
   there is no `roles/` directory in this repo — the closest equivalents are
-  `agents/coder/files/home/coder.md` and `agents/reviewer/files/home/reviewer.md`. `go run main.go`
+  `agents/coder/files/home/coder.md` and `agents/reviewer/files/home/REVIEWER.md`. `go run main.go`
   will fail until this is reconciled.
 - Read-only kits are prompt-enforced only; see the note under "Kits" above. If the `sbx` spec
   schema grows tool allow/deny support, those five kits should deny `Edit`/`Write`.

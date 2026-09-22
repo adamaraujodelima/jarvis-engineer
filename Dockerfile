@@ -16,6 +16,11 @@ USER root
 # Pin the release so template rebuilds are reproducible. Bump deliberately.
 ARG AI_MEMORY_VERSION=2.0.1
 
+# golangci-lint v2 understands the repository's version: "2" configuration
+# format. Its installer selects the appropriate pre-built binary for the image
+# architecture, which keeps both amd64 and arm64 templates supported.
+ARG GOLANGCI_LINT_VERSION=2.13.2
+
 # mise is a build-time tool only: it resolves the correct release asset for the
 # target architecture (these base images are amd64 + arm64) and verifies the
 # published .sha256. Redirect it out of $HOME -- /root is mode 0700, so anything
@@ -43,6 +48,9 @@ RUN mise use -g "github:akitaonrails/ai-memory@${AI_MEMORY_VERSION}" \
  && chmod -R a+rX /usr/local/share/ai-memory/hooks
 
 RUN npm install -g @benborla29/mcp-server-mysql
+
+RUN curl -sSfL https://golangci-lint.run/install.sh \
+ | sh -s -- -b /usr/local/bin "v${GOLANGCI_LINT_VERSION}"
 
 # Bake the Claude Code plugins into the template. A sandbox gets a fresh
 # ~/.claude, so plugins installed by hand are gone the next time one is created
@@ -106,6 +114,7 @@ RUN node -e ' \
 
 # Fail the build rather than ship an image whose tools the agent cannot reach.
 RUN su agent -s /bin/sh -c 'ai-memory --version' \
+ && golangci-lint version | grep -q "version ${GOLANGCI_LINT_VERSION}" \
  && su agent -s /bin/sh -c 'test -x /usr/local/share/ai-memory/hooks/claude-code/session-start.sh' \
  && command -v dockerd >/dev/null \
  && id -nG agent | grep -qw docker \
