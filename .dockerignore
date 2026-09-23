@@ -1,0 +1,15 @@
+.git
+.gitignore
+.idea
+*.tar
+agent.log
+latest
+.env
+docs
+scripts
+# ...except the scripts the image itself installs.
+!scripts/install-claude-plugins.sh
+!scripts/restore-claude-plugins.sh
+!scripts/jarvis-statusline.sh
+agents
+config

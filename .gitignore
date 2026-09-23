@@ -1,0 +1,5 @@
+.env
+*.tar
+agent.log
+latest
+.mcp.json

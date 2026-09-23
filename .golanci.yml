@@ -1,0 +1,63 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: false # Keep CI fast and target core API binary
+
+issues:
+  max-same-issues: 0
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+        - prealloc
+        - noctx
+
+formatters:
+  enable:
+    - goimports
+    - golines
+
+linters:
+  disable-all: true
+  enable:
+    # --- High-Load & Resource Leak Prevention ---
+    - bodyclose # Prevents HTTP connection leaks
+    - sqlclosecheck # Prevents DB connection pool leaks
+    - rowserrcheck # Ensures DB row errors are checked before release
+    - noctx # Enforces context propagation across RPC/HTTP calls
+    - fatcontext # Prevents nested context leaks in loops
+
+    # --- Allocation & GC Optimization ---
+    - prealloc # Flags slices needing explicit pre-allocation
+    - makezero # Catches redundant slice allocations
+    - perfsprint # Flags slow fmt.Sprintf calls in hot paths
+    - mirror # Flags redundant string/byte slice allocations
+
+    # --- Core Stability & Security ---
+    - errcheck
+    - gosec
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - copyloopvar # Concurrency/pointer bug prevention (Go 1.22+)
+
+    # --- Code Quality ---
+    - gocritic
+    - modernize
+    - sloglint # Enforces zero-alloc structured logging idioms
+
+settings:
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance # Enables checks like hugeParam, stringXbytes, rangeValCopy
+    disabled-checks:
+      - whyNoLint
+
+  golines:
+    max-len: 120
+
+  goimports:
+    local-prefixes: github.com/your-org/your-api

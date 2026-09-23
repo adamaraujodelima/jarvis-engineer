@@ -1,0 +1,14 @@
+{
+  "marketplaces": [
+    "anthropics/claude-plugins-official",
+    "mattpocock/skills",
+    "JuliusBrussee/caveman",
+    "blader/humanizer"
+  ],
+  "plugins": [
+    "superpowers@claude-plugins-official",
+    "mattpocock-skills@mattpocock",
+    "caveman@caveman",
+    "humanizer@humanizer"
+  ]
+}
