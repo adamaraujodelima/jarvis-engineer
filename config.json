@@ -7,8 +7,8 @@
   ],
   "plugins": [
     "superpowers@claude-plugins-official",
-    "mattpocock-skills@mattpocock",
     "caveman@caveman",
-    "humanizer@humanizer"
+    "humanizer@humanizer",
+    "atlassian@claude-plugins-official"
   ]
 }
