@@ -1,52 +1,194 @@
-## Code style
+# Code style and architecture
 
-- Packages must export interface not implementation.
-- Functions: 4–20 lines. Split if longer.
-- Files: under 500 lines. Split by responsibility.
-- One thing per function, one responsibility per module (SRP).
-- Names: specific and unique. Avoid `data`, `handler`, `Manager`.
-  Prefer names that return <5 grep hits in the codebase.
-- Types: explicit. No `any`, no `Dict`, no untyped functions.
-- No code duplication. Extract shared logic into a function/module.
-- No if/else. Use early returns instead, guard clauses, switch statements.
-- Early returns over nested ifs. Max 2 levels of indentation.
-- Exception messages must include the offending value and expected shape.
+These are standards for the code and its design. They describe what a good
+implementation should look like; agent workflow, scope, TDD sequencing, and
+validation requirements belong in `CODER.md`.
 
-### Comments
+The goal is code that is understandable, changeable, testable, and resilient.
+Prefer the simplest design that makes the behavior and business rules clear.
+These are principles, not mechanical rules: use judgment and follow the
+language, framework, and repository conventions when they are more appropriate.
 
-- Keep your own comments. Don't strip them on refactor — they carry
-  intent and provenance.
-- Write WHY, not WHAT. Skip `// increment counter` above `i++`.
-- Docstrings on public functions: intent + one usage example.
-- Reference issue numbers / commit SHAs when a line exists because
-  of a specific bug or upstream constraint.
+## Clean code
 
-### Tests
+- Write code for the next reader. Names, types, module boundaries, and control
+  flow should communicate intent without requiring the reader to reconstruct
+  the design from implementation details.
+- Keep each function, type, and module cohesive. It should have one focused
+  purpose and one primary reason to change. “One responsibility” does not mean
+  one line or one operation; related behavior should live together.
+- Prefer simple, direct code over cleverness. Do not introduce a pattern,
+  generic abstraction, or indirection without a concrete problem it solves.
+- Minimize hidden state, surprising mutations, implicit control flow, and
+  action-at-a-distance. Make important effects visible in names, return
+  values, types, or explicit commands.
+- Optimize for changeability: a likely change should be local, understandable,
+  and isolated from unrelated modules.
 
-- Tests run with a single command: `<project-specific>`.
-- Every new function gets a test. Bug fixes get a regression test.
-- Mock external I/O (API, DB, filesystem) with named fake classes,
-  not inline stubs.
-- Tests must be F.I.R.S.T: fast, independent, repeatable,
-  self-validating, timely.
+### Names and types
 
-### Dependencies
+- Use precise, domain-oriented names. Names should express meaning, not merely
+  implementation role.
+- Avoid vague names such as `data`, `info`, `thing`, `helper`, `manager`,
+  `handler`, `utils`, and `process` unless their meaning is genuinely clear in
+  context.
+- Use consistent terminology for the same concept throughout the codebase.
+  Prefer full words except for established language or domain conventions.
+- Name booleans as predicates (`isActive`, `canRetry`, `hasAccess`) and
+  commands as verbs. Make it clear whether an operation reads, mutates,
+  persists, or sends something.
+- Prefer explicit types at public boundaries and for non-obvious values. Do
+  not use `any`, untyped values, or broad maps to avoid making a design
+  decision.
+- At dynamic or untrusted boundaries, validate data immediately and convert
+  it to a typed internal representation.
+- Make invalid states difficult to represent with enums, constrained
+  constructors, value objects, and types that preserve units and invariants.
 
-- Inject dependencies through constructor/parameter, not global/import.
-- Wrap third-party libs behind a thin interface owned by this project.
+### Functions and control flow
 
-### Structure
+- A function should operate at one level of abstraction, have a clear name,
+  and do one cohesive job. There is no universal line-count limit; split it
+  when it mixes abstraction levels, has multiple independent reasons to
+  change, or contains a meaningful part that can be understood separately.
+- Keep argument lists understandable. Group genuinely related values into a
+  named type, but do not use parameter objects to hide an incoherent API.
+- Keep queries side-effect free where practical. Make commands' effects
+  explicit and predictable.
+- Prefer guard clauses when they reduce nesting. Use `if/else`, `switch`,
+  pattern matching, and loops when they express the logic most clearly. Do
+  not replace clear branching with clever polymorphism or dispatch tables just
+  to avoid an `if`.
+- Keep nesting shallow through clear extraction and early returns, but do not
+  enforce an arbitrary indentation or function-length limit.
+- Handle meaningful cases deliberately. Use exhaustive matching where the
+  language supports it, and make impossible states fail clearly rather than
+  silently selecting a surprising fallback.
+- Avoid boolean flags that make one function perform unrelated workflows.
+- Avoid premature generalization. A small amount of duplication can be safer
+  than a wrong abstraction; extract shared code when its behavior, invariant,
+  and reason for change are truly shared.
 
-- Follow the framework's convention (Gin, Rails, Django, Next.js, etc.).
-- Prefer small focused modules over god files.
-- Predictable paths: controller/model/view, src/lib/test, etc.
+### Comments and documentation
 
-### Formatting
+- Prefer expressive code over explanatory comments. Comments should explain
+  why a non-obvious decision exists, an invariant, a compatibility constraint,
+  or an external-system limitation.
+- Do not write comments that merely restate the code. Update or remove stale
+  comments when behavior changes.
+- Document public APIs with their purpose, inputs, outputs, side effects,
+  errors, lifecycle expectations, and important invariants. Add examples when
+  they clarify the contract.
+- Link to an issue, specification, or upstream constraint when it explains a
+  decision that future maintainers may otherwise undo.
 
-- Use the language default formatter (`cargo fmt`, `gofmt`, `prettier`,
-  `black`, `rubocop -A`). Don't discuss style beyond that.
+## Architecture and modularity
 
-### Logging
+- Keep public APIs small and intentional. Export only what callers need and
+  keep implementation details private.
+- Organize larger systems around features or domain capabilities when that
+  improves cohesion. Do not create large technical-layer packages that make a
+  single feature span many unrelated locations.
+- Keep modules cohesive and avoid cycles. If two modules need each other,
+  revisit ownership or introduce a narrow boundary owned by the caller.
+- Prefer deep, useful modules: hide substantial implementation complexity
+  behind a small, stable interface. Do not split code into shallow modules
+  whose interfaces and wiring are more complex than the behavior they hide.
+- Do not require every package to export an interface. Use an abstraction when
+  it protects policy from a volatile detail, enables a real alternative, or
+  materially improves testability. Prefer concrete types internally when no
+  boundary requires indirection.
+- Do not wrap every third-party library automatically. Create a project-owned
+  boundary when vendor coupling, portability, domain translation, or
+  testability justifies it.
 
-- Structured JSON when logging for debugging / observability.
-- Plain text only for user-facing CLI output.
+### Dependency direction
+
+Business policy should not depend on delivery mechanisms or infrastructure:
+
+```text
+frameworks / drivers / delivery / persistence
+                    ↓
+             application use cases
+                    ↓
+              domain policy and rules
+```
+
+Arrows represent dependencies. Inner policy must not import outer details such
+as web frameworks, databases, queues, filesystems, clocks, or vendor SDKs.
+Put those details behind ports/interfaces owned by the policy layer and
+implement them in outer adapters. The exact number of layers is flexible; the
+direction and ownership of the boundary are what matter.
+
+- Keep the core usable without starting a server or connecting to a database.
+- Assemble concrete dependencies at the application's composition root.
+- Do not hide dependencies in service locators, mutable globals, or
+  constructors with surprising side effects.
+- Use dependency injection for resources that must vary, be replaced in
+  tests, or be controlled by the application. Pure functions need no
+  injection ceremony.
+- Make transactions, retries, timeouts, idempotency, and concurrency
+  boundaries explicit where they affect business behavior.
+
+## Errors and invariants
+
+- Validate untrusted input at system boundaries, then pass typed and
+  normalized values inward. Enforce domain invariants wherever they could be
+  violated by another caller.
+- Treat expected failures as part of the API. Use typed/domain errors that
+  callers can handle rather than undocumented error strings.
+- Add context where an error gains meaning and preserve its original cause or
+  stack. Do not swallow errors or catch broadly without a recovery strategy.
+- Distinguish invalid input, conflicts, unavailable dependencies, programmer
+  errors, and unexpected failures. Translate them to user/API responses at
+  the outer boundary.
+- Error messages should identify the operation and expected condition, plus a
+  safe offending value or identifier when useful. Never include secrets,
+  credentials, personal data, or unbounded raw payloads.
+- Preserve invariants across state changes. Make transaction boundaries,
+  partial-failure behavior, and retry safety explicit for stateful operations.
+
+## Tests and testability
+
+- Test observable behavior and contracts, not implementation details. Tests
+  should survive internal refactoring that preserves behavior.
+- Cover normal, boundary, invalid, and meaningful failure cases. Bug fixes
+  should have regression coverage.
+- Prefer table-driven or parameterized tests for related cases, with
+  descriptive case names.
+- Assert returned values, emitted events, persisted results, user-visible
+  output, or other externally observable effects. Avoid tests that verify
+  private call choreography.
+- Test external systems at the appropriate level. Use fakes or contract-tested
+  test doubles at unit boundaries, and focused integration tests for behavior
+  that a fake cannot prove, such as serialization, queries, transactions, and
+  vendor integration.
+- Keep tests clear and cohesive. Test difficulty is design feedback: hard to
+  test usually means a module has hidden dependencies, excessive responsibility,
+  or an unclear contract.
+
+## Refactoring and file structure
+
+- Treat long functions, duplication, large modules, excessive conditionals,
+  and tangled dependencies as signals to investigate, not automatic violations.
+- Refactor in small, behavior-preserving steps protected by tests. Separate
+  structural improvements from behavior changes when that makes the result
+  easier to understand and review.
+- Keep files focused and navigable. There is no universal file-size limit;
+  split a file when ownership, cohesion, navigation, compilation, or change
+  isolation suffers—not merely because it crossed an arbitrary line count.
+- Preserve compatibility deliberately when changing public APIs, data formats,
+  events, migrations, or persisted schemas.
+
+## Further reading
+
+These principles are informed by:
+
+- *Clean Code*, Robert C. Martin — names, functions, comments, errors, and
+  testable code.
+- *Clean Architecture*, Robert C. Martin — boundaries, dependency direction,
+  and policy independent from technical details.
+- *Refactoring*, Martin Fowler with Kent Beck — code smells and small,
+  behavior-preserving improvements.
+- *A Philosophy of Software Design*, John Ousterhout — complexity management,
+  information hiding, and deep modules.

@@ -127,11 +127,10 @@ resolves to an empty parent while `sbx kit validate` still reports `VALID`):
   the one that could drop the keys, and it is wrapped to always exit 0
 - a `jarvis-statusline --install` step, after `restore-claude-plugins` for the same
   last-writer reason, and wrapped to always exit 0
-- a `socat` tunnel that bridges MySQL: sandboxes have no raw TCP egress, only an HTTP CONNECT
-  proxy at `gateway.docker.internal:3128`, so `socat` speaks CONNECT upstream and presents a plain
-  TCP socket on `127.0.0.1:3306`. The proxy resolves the upstream hostname on the _host_ side, so
-  the socat target is literally `localhost:3306` — and the network allowlist must name
-  `localhost:3306` too, since `host.docker.internal:3306` is accepted as a rule but never matches.
+- MySQL reached directly at `host.docker.internal:3306` — the MCP server dials it itself, and the
+  base allowlist's `host.docker.internal` rule covers it. An earlier revision tunnelled this through
+  the sandbox's HTTP CONNECT proxy with `socat` on `127.0.0.1:3306`; that step and its
+  `localhost:3306` allowlist rule are gone.
 - conditional registration of the read-only `mysql` MCP server (`ALLOW_INSERT/UPDATE/DELETE/DDL_OPERATION=false`),
   which no-ops with a warning (never a hard failure — a non-zero startup step silently aborts every
   later step) if `MYSQL_USER` or the `claude` CLI isn't available
@@ -162,7 +161,7 @@ Three scripts, three different things they can prove:
 
 - `main.go` invokes `claude --append-system-prompt-file roles/CODER.md` / `roles/REVIEWER.md`, but
   there is no `roles/` directory in this repo — the closest equivalents are
-  `agents/coder/files/home/coder.md` and `agents/reviewer/files/home/REVIEWER.md`. `go run main.go`
+  `agents/coder/files/home/CODER.md` and `agents/reviewer/files/home/REVIEWER.md`. `go run main.go`
   will fail until this is reconciled.
 - Read-only kits are prompt-enforced only; see the note under "Kits" above. If the `sbx` spec
   schema grows tool allow/deny support, those five kits should deny `Edit`/`Write`.

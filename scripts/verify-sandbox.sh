@@ -2,9 +2,9 @@
 #
 # Live acceptance checks against a running sandbox.
 #
-# Kit and image checks cannot prove the MySQL path works: raw TCP egress is
-# blocked in a sandbox, so the tunnel is only observable at runtime. These cases
-# assert the output of real queries and a real MCP health check.
+# Kit and image checks cannot prove the MySQL path works: reaching the host's
+# MySQL is only observable at runtime. These cases assert the output of real
+# queries and a real MCP health check.
 #
 # Usage: scripts/verify-sandbox.sh <sandbox-name>
 
@@ -69,16 +69,16 @@ check 'memory volume is writable by the agent' \
 	'stat -c %U:%G /var/lib/ai-memory'
 
 # --- mysql --------------------------------------------------------------
-check 'mysql tunnel is listening on loopback' \
-	'TUNNEL_UP' \
-	'socat -u /dev/null TCP:127.0.0.1:3306,connect-timeout=5 >/dev/null 2>&1 && echo TUNNEL_UP'
+check 'host mysql port is reachable from the sandbox' \
+	'PORT_UP' \
+	'socat -u /dev/null TCP:host.docker.internal:3306,connect-timeout=5 >/dev/null 2>&1 && echo PORT_UP'
 
 # A MySQL server greets on connect; anything else means we reached a stub.
-check 'tunnel reaches a real MySQL server' \
+check 'the port answers as a real MySQL server' \
 	'GREETING_OK' \
 	'node -e "
 	  const net=require(\"net\");
-	  const s=net.connect(3306,\"127.0.0.1\");
+	  const s=net.connect(3306,\"host.docker.internal\");
 	  s.setTimeout(8000);
 	  s.on(\"data\",d=>{console.log(/[0-9]+\.[0-9]+\.[0-9]+/.test(d.toString(\"latin1\"))?\"GREETING_OK\":\"NO_VERSION\");s.end();});
 	  s.on(\"timeout\",()=>{console.log(\"TIMEOUT\");s.destroy();});

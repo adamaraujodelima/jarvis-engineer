@@ -41,7 +41,6 @@ spec_text() {
 BASE_ALLOW=(
 	host.docker.internal
 	gateway.docker.internal
-	localhost:3306
 	github.com
 	api.github.com
 	raw.githubusercontent.com
@@ -91,7 +90,7 @@ for kit in "${KITS[@]}"; do
 		'jarvis-engineer:latest' "$inspected"
 
 	check "$kit declares the memory volume + startup steps" \
-		'10 startup' "$inspected"
+		'9 startup' "$inspected"
 
 	# The image bakes the plugins, but `sbx create` rewrites
 	# ~/.claude/settings.json and drops the keys that load them, so a kit
@@ -112,24 +111,20 @@ for kit in "${KITS[@]}"; do
 		"$(basename "$kit" | tr '[:lower:]' '[:upper:]')" \
 		"$(cat "$kit/files/home/.jarvis-role" 2>&1)"
 
-	# host.docker.internal:3306 is accepted as a rule but never matches, because
-	# enforcement normalises that name to localhost. Assert the rule that works.
-	check "$kit allows mysql on the name enforcement matches" \
-		'"localhost:3306"' "$(spec_text "$kit")"
-
 	check "$kit declares the base network allowlist" \
 		'COMPLETE' "$(missing_base "$kit")"
 
-	# Redundant with localhost:3306 -- loopback is the only thing it could
-	# widen, and the tunnel is the only loopback port that leaves the sandbox.
+	# Nothing in a kit leaves the sandbox over loopback, so a bare localhost
+	# rule only widens the allowlist for no caller.
 	check "$kit carries no bare localhost rule" \
 		'CLEAN' \
 		"$(grep -qE '^[[:space:]]*-[[:space:]]*"localhost"[[:space:]]*$' "$kit/spec.yaml" \
 			&& echo REDUNDANT || echo CLEAN)"
 
-	check "$kit tunnels mysql through the CONNECT proxy" \
-		'PROXY:gateway.docker.internal:localhost:3306,proxyport=3128' \
-		"$(spec_text "$kit")"
+	# The host's MySQL is reachable from the sandbox only under this name;
+	# 127.0.0.1 would resolve to the sandbox itself.
+	check "$kit points mysql at the host" \
+		'-e MYSQL_HOST=host.docker.internal' "$(spec_text "$kit")"
 
 	check "$kit keeps mysql read-only" \
 		'-e ALLOW_DELETE_OPERATION=false' "$(spec_text "$kit")"
