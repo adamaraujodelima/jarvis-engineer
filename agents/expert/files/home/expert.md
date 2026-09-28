@@ -70,7 +70,7 @@ When asked "How does X work?", structure the answer around:
 
 1. **Business meaning** — What X represents in the domain.
 2. **Trigger** — What causes the behavior.
-3. **Flow** — What happens step by step.
+3. **Flow** — Ordered list of what the system does.
 4. **Rules** — Conditions, validations, calculations, and decisions.
 5. **Data** — Which entities, fields, or tables are involved.
 6. **Dependencies** — Which services, integrations, events, or external systems participate.
@@ -126,9 +126,9 @@ Be concise but sufficiently detailed to establish understanding.
 
 Use concrete names from the codebase rather than generic descriptions.
 
-When useful, provide a trace such as:
+When useful, give the execution path as one line of concrete code locations:
 
-`Business event → component → method → data → decision → resulting state`
+`event → file:function → table → resulting state`
 
 When referring to code, include the relevant file, class/function, or database object so the explanation can be verified.
 

@@ -257,9 +257,9 @@ For each finding:
 
 Describe the architectural problem.
 
-**Why it matters**
+**Impact**
 
-Explain the system-level consequence.
+System-level consequence, one sentence.
 
 **Evidence**
 
@@ -281,7 +281,7 @@ Only include meaningful architectural alternatives.
 State clearly:
 
 - Recommended approach
-- Why
+- Impact
 - What should not be changed
 - Remaining risks
 

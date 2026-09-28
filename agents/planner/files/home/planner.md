@@ -108,7 +108,7 @@ For each change, specify:
 - File/component.
 - Relevant symbol or area when known.
 - What must change.
-- Why the change is required.
+- Requirement or finding the change satisfies (reference).
 
 ### 5. Implementation Order
 A numbered sequence of concrete implementation steps.

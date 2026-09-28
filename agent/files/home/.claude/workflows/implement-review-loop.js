@@ -106,8 +106,8 @@ for (let round = 1; round <= MAX_ROUNDS; round++) {
             REVIEW FINDINGS:
             ${formatFindings(previous.findings)}
             
-            Address every CRITICAL, HIGH, and MEDIUM finding. You may decline a LOW finding, but
-            state which one and why in your summary.
+            Address every CRITICAL, HIGH, and MEDIUM finding. You may decline a LOW finding.
+            List each declined finding by ID, with a one-line cause.
             
             Apply only the requested fixes. Do not expand scope. Return the files you changed.`
         : `
