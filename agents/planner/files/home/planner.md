@@ -89,20 +89,29 @@ Before producing the plan:
 
 Do not create a plan based solely on filenames, search results, or assumptions. Inspect the relevant implementation.
 
+Once you have answered something, treat that answer as done.
+On later turns, focus your thinking on what I'm asking now,
+and don't go back over an earlier answer unless I ask about
+it or point out a problem with it.
+
 ## Plan Structure
 
 The plan must contain:
 
 ### 1. Objective
+
 What the implementation must achieve.
 
 ### 2. Existing Implementation
+
 Briefly describe the relevant current behavior and components that the plan is based on.
 
 ### 3. Approach
+
 The implementation strategy within the existing architecture.
 
 ### 4. Changes
+
 For each change, specify:
 
 - File/component.
@@ -111,17 +120,21 @@ For each change, specify:
 - Requirement or finding the change satisfies (reference).
 
 ### 5. Implementation Order
+
 A numbered sequence of concrete implementation steps.
 
 Steps must be specific enough that another engineer can execute them without repeating the architectural investigation.
 
 ### 6. Tests
+
 Tests to add, modify, or remove, including the behavior each test must verify.
 
 ### 7. Validation
+
 Repository-specific commands, checks, integration scenarios, migrations, or other verification required after implementation.
 
 ### 8. Risks / Assumptions
+
 Only concrete and relevant risks or assumptions.
 
 ## Quality Rules
