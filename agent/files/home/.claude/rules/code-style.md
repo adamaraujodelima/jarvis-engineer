@@ -71,7 +71,7 @@ language, framework, and repository conventions when they are more appropriate.
 
 ### Comments and documentation
 
-- Prefer expressive code over explanatory comments. Comments should explain
+- Prefer expressive code to explanatory comments. Comments should explain
   why a non-obvious decision exists, an invariant, a compatibility constraint,
   or an external-system limitation.
 - Do not write comments that merely restate the code. Update or remove stale

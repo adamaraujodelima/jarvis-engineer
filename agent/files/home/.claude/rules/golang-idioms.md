@@ -1,3 +1,8 @@
+---
+paths:
+  - "**/*.go"
+---
+
 # Golang idioms
 
 ## Error Handling
