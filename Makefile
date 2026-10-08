@@ -1,7 +1,7 @@
 IMAGE   := jarvis-engineer:latest
 TARBALL := $(CURDIR)/jarvis-engineer.tar
-SANDBOX ?= jarvis-coder
-KIT     ?= agents/coder
+SANDBOX ?= jarvis-engineer
+KIT     ?= agent
 
 .PHONY: build template verify verify-image verify-kits verify-sandbox sandbox clean
 
