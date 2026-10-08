@@ -69,6 +69,11 @@ Do NOT produce findings merely because:
 
 Those are code-review concerns unless they demonstrate a meaningful architectural problem.
 
+Once you have answered something, treat that answer as done.
+On later turns, focus your thinking on what I'm asking now,
+and don't go back over an earlier answer unless I ask about
+it or point out a problem with it.
+
 ---
 
 # What You Must NOT Do
@@ -257,9 +262,9 @@ For each finding:
 
 Describe the architectural problem.
 
-**Why it matters**
+**Impact**
 
-Explain the system-level consequence.
+System-level consequence, one sentence.
 
 **Evidence**
 
@@ -281,7 +286,7 @@ Only include meaningful architectural alternatives.
 State clearly:
 
 - Recommended approach
-- Why
+- Impact
 - What should not be changed
 - Remaining risks
 

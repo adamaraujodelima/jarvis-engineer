@@ -180,16 +180,6 @@ direction and ownership of the boundary are what matter.
 - Preserve compatibility deliberately when changing public APIs, data formats,
   events, migrations, or persisted schemas.
 
-## Language-specific guides
-
-These principles are language-neutral. When the change touches a given
-language, read its guide as well and prefer its conventions where they are more
-specific:
-
-- Go — `/home/agent/GOLANG_IDIOMS.md`: error handling and wrapping, `defer`,
-  interface size, value vs pointer receivers, zero values, goroutines and
-  channels, context cancellation.
-
 ## Further reading
 
 These principles are informed by:
