@@ -41,10 +41,11 @@ jobs:
         run: /bin/bash scripts/test-sync-agents.sh
 
   # What runs where: `go` builds and vets the module, `sync` runs the generator
-  # tests and the drift gate, and this job builds the sandbox template and runs
-  # the static image acceptance checks. verify-kits.sh and verify-sandbox.sh are
-  # not run: they need the sbx CLI, which is not available on GitHub-hosted
-  # runners.
+  # tests and the drift gate, and `image` / `image-codex` build the Claude and
+  # Codex sandbox templates and run their static image acceptance checks (each
+  # also fails when the two Dockerfiles pin different tool versions).
+  # verify-kits.sh and verify-sandbox*.sh are not run: they need the sbx CLI,
+  # which is not available on GitHub-hosted runners.
   image:
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -56,3 +57,15 @@ jobs:
         run: make build
       - name: Verify image
         run: make verify-image
+
+  image-codex:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build Codex image
+        run: make build-codex
+      - name: Verify Codex image
+        run: make verify-image-codex
