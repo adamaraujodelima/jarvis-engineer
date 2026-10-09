@@ -11,5 +11,4 @@ scripts
 !scripts/install-claude-plugins.sh
 !scripts/restore-claude-plugins.sh
 !scripts/jarvis-statusline.sh
-agents
 config

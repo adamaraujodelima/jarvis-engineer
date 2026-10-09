@@ -34,7 +34,7 @@ permissions:
       - "registry.yarnpkg.com"
 
 # --- shared ai-memory block ---------------------------------------------
-# Duplicated verbatim in every agents/*/spec.yaml. It cannot be factored into a
+# Duplicated in the Claude and Codex kits. It cannot be factored into a
 # parent kit: `extends` only resolves built-in agents, and pointing it at a
 # local kit yields an empty parent while `sbx kit validate` still reports VALID.
 # scripts/verify-kits.sh asserts the copies stay in agreement.
@@ -148,7 +148,7 @@ setup:
     # are deliberately NOT passed with -e: the server inherits them from the
     # sandbox environment, so the password never lands in a config file. Supply
     # them at creation time:
-    #   sbx create --env-file .env --kit agents/coder jarvis-coder .
+    #   sbx create --env-file .env --kit agent jarvis-engineer .
     - command:
         - "sh"
         - "-c"
