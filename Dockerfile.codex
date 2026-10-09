@@ -22,6 +22,9 @@ ARG AI_MEMORY_VERSION=2.0.1
 # Same version as Dockerfile; see there.
 ARG GOLANGCI_LINT_VERSION=2.13.2
 
+# Pin MCP server package to keep rebuilds deterministic and reviewed.
+ARG MCP_SERVER_MYSQL_VERSION=1.0.6
+
 # Build-time only, redirected out of /root for the same reason as in Dockerfile.
 ENV MISE_INSTALL_PATH=/usr/local/bin/mise \
     MISE_DATA_DIR=/opt/mise \
@@ -41,7 +44,7 @@ RUN mise use -g "github:akitaonrails/ai-memory@${AI_MEMORY_VERSION}" \
  && cp -R "$src/hooks" /usr/local/share/ai-memory/hooks \
  && chmod -R a+rX /usr/local/share/ai-memory/hooks
 
-RUN npm install -g @benborla29/mcp-server-mysql
+RUN npm install -g "@benborla29/mcp-server-mysql@${MCP_SERVER_MYSQL_VERSION}"
 
 RUN curl -sSfL https://golangci-lint.run/install.sh \
  | sh -s -- -b /usr/local/bin "v${GOLANGCI_LINT_VERSION}"
