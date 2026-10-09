@@ -1,4 +1,15 @@
-# The `-docker` flavour of the base template is the supported way to give an
+# One Dockerfile for both agents' sandbox templates. Build with
+# `make build claude|codex`, which passes --target and AGENT together.
+#
+# `common` holds what both images install; `claude` and `codex` add what only
+# one of them needs. The two bases differ, so Docker builds `common` once per
+# agent: what is shared is the source of those layers, not their cache.
+#
+# AGENT has no default on purpose: a build that forgets it fails on the blank
+# base name instead of silently building on the wrong base.
+ARG AGENT
+
+# The `-docker` flavour of each base template is the supported way to give an
 # agent a working Docker Engine: it ships dockerd/containerd, puts the agent in
 # the `docker` group, and carries the `com.docker.sandboxes.start-docker=true`
 # label that makes sbx run the sandbox privileged and launch dockerd itself
@@ -9,7 +20,13 @@
 # The daemon is nested inside the sandbox -- it is not the host's. Nothing here
 # exposes the host socket, and images/containers the agent creates live and die
 # with the sandbox.
-FROM docker/sandbox-templates:claude-code-docker
+#
+# The codex base already carries node, npm and the codex CLI under
+# /usr/local/share/npm-global (spike S10).
+FROM docker/sandbox-templates:claude-code-docker AS base-claude
+FROM docker/sandbox-templates:codex-docker AS base-codex
+
+FROM base-${AGENT} AS common
 
 USER root
 
@@ -40,9 +57,9 @@ RUN curl -fsSL https://mise.run/bash | sh
 # steps need no extra flags.
 # The binary is copied rather than symlinked on purpose: `install-hooks` resolves
 # its own executable through any symlink and writes that absolute path into
-# ~/.claude/settings.json. Symlinking would bake the version-pinned mise path
-# ("/opt/mise/installs/.../2.0.1/ai-memory") into the agent's hook config, which
-# breaks the moment AI_MEMORY_VERSION is bumped.
+# ~/.claude/settings.json (or ~/.codex/hooks.json). Symlinking would bake the
+# version-pinned mise path ("/opt/mise/installs/.../2.0.1/ai-memory") into the
+# agent's hook config, which breaks the moment AI_MEMORY_VERSION is bumped.
 RUN mise use -g "github:akitaonrails/ai-memory@${AI_MEMORY_VERSION}" \
   && src="$(mise where "github:akitaonrails/ai-memory@${AI_MEMORY_VERSION}")" \
   && install -m 0755 "$src/ai-memory" /usr/local/bin/ai-memory \
@@ -55,17 +72,32 @@ RUN npm install -g "@benborla29/mcp-server-mysql@${MCP_SERVER_MYSQL_VERSION}"
 RUN curl -sSfL https://golangci-lint.run/install.sh \
   | sh -s -- -b /usr/local/bin "v${GOLANGCI_LINT_VERSION}"
 
+# Fail the build rather than ship an image whose tools the agent cannot reach.
+RUN su agent -s /bin/sh -c 'ai-memory --version' | grep -q "ai-memory ${AI_MEMORY_VERSION}" \
+  && golangci-lint version | grep -q "version ${GOLANGCI_LINT_VERSION}" \
+  && command -v dockerd >/dev/null \
+  && id -nG agent | grep -qw docker
+
+
+FROM common AS claude
+
+# The target and AGENT must agree: `common` was built on base-${AGENT}, so
+# `--target claude` with AGENT=codex would put Claude layers on the Codex base.
+ARG AGENT
+RUN test "${AGENT}" = claude \
+  || { echo "target claude needs --build-arg AGENT=claude (got '${AGENT}'); use: make build claude" >&2; exit 1; }
+
 # Bake the Claude Code plugins into the template. A sandbox gets a fresh
 # ~/.claude, so plugins installed by hand are gone the next time one is created
 # -- baking them is the only way the skills are there on first prompt.
 #
 # The list lives in config.json so changing it needs no build flags and no edit
-# here. Editing that file invalidates this layer, so a plain `make build` picks
-# the change up; a rebuild with an unchanged config reuses the cached layer and
-# keeps the plugin versions it resolved the first time. There is no version pin
-# to bump the way AI_MEMORY_VERSION is -- the plugin CLI always takes the
-# marketplace's current tip -- so use `docker build --no-cache-filter` on this
-# stage to pull in new releases.
+# here. Editing that file invalidates this layer, so a plain `make build claude`
+# picks the change up; a rebuild with an unchanged config reuses the cached
+# layer and keeps the plugin versions it resolved the first time. There is no
+# version pin to bump the way AI_MEMORY_VERSION is -- the plugin CLI always
+# takes the marketplace's current tip -- so use `docker build --no-cache-filter`
+# on this stage to pull in new releases.
 #
 # Both files are kept in the image rather than removed after the build: together
 # they are how an agent adds a plugin to, or repairs, its own running sandbox.
@@ -115,12 +147,8 @@ RUN node -e ' \
   ' \
   && chmod 0644 /usr/local/share/jarvis-engineer/plugin-settings.json
 
-# Fail the build rather than ship an image whose tools the agent cannot reach.
-RUN su agent -s /bin/sh -c 'ai-memory --version' \
-  && golangci-lint version | grep -q "version ${GOLANGCI_LINT_VERSION}" \
-  && su agent -s /bin/sh -c 'test -x /usr/local/share/ai-memory/hooks/claude-code/session-start.sh' \
-  && command -v dockerd >/dev/null \
-  && id -nG agent | grep -qw docker \
+# Fail the build rather than ship an image whose Claude-only pieces do not work.
+RUN su agent -s /bin/sh -c 'test -x /usr/local/share/ai-memory/hooks/claude-code/session-start.sh' \
   && su agent -s /bin/sh -c 'HOME=/home/agent /home/agent/.local/bin/claude plugin list --json' \
   | grep -q '"enabled": true' \
   && su agent -s /bin/sh -c 'HOME=/home/agent restore-claude-plugins' \
@@ -128,5 +156,27 @@ RUN su agent -s /bin/sh -c 'ai-memory --version' \
   | grep -q '^CODER | ' \
   && ! su agent -s /bin/sh -c 'HOME=/home/agent /home/agent/.local/bin/claude plugin list --json' \
   | grep -q '"enabled": false'
+
+USER agent
+
+
+FROM common AS codex
+
+# See the claude stage: the target and AGENT must agree.
+ARG AGENT
+RUN test "${AGENT}" = codex \
+  || { echo "target codex needs --build-arg AGENT=codex (got '${AGENT}'); use: make build codex" >&2; exit 1; }
+
+# Re-trusts ai-memory's hooks on every sandbox start (Codex runs untrusted
+# hooks not at all, and sbx recreates ~/.codex). Outside $HOME for the same
+# reason: everything under it is per-sandbox state.
+COPY scripts/trust-codex-hooks.js /usr/local/bin/trust-codex-hooks
+RUN chmod 0755 /usr/local/bin/trust-codex-hooks
+
+# Fail the build rather than ship an image whose Codex-only pieces do not work.
+RUN su agent -s /bin/sh -c 'test -x /usr/local/share/ai-memory/hooks/codex/session-start.sh' \
+  && su agent -s /bin/sh -c '/usr/local/share/npm-global/bin/codex --version' \
+  && su agent -s /bin/sh -c 'command -v trust-codex-hooks' \
+  && test -d /usr/local/share/npm-global/lib/node_modules/@benborla29/mcp-server-mysql
 
 USER agent

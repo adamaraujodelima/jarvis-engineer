@@ -8,7 +8,7 @@ description: "Senior Software Engineer responsible for orchestrating agents acco
 sandbox:
   # Without this, the kit falls back to the stock Claude image, which carries
   # neither ai-memory nor the MySQL MCP server.
-  image: jarvis-engineer:latest
+  image: jarvis-engineer:claude
   command:
     - "--append-system-prompt-file"
     - "/home/agent/ROLE.md"

@@ -6,7 +6,7 @@
 # MySQL is only observable at runtime. These cases assert the output of real
 # queries and a real MCP health check.
 #
-# Usage: scripts/verify-sandbox.sh <sandbox-name>
+# Usage: scripts/verify-sandbox-claude.sh <sandbox-name>
 
 set -uo pipefail
 

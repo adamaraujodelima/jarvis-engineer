@@ -3,7 +3,7 @@
 # Live acceptance checks against a running Codex sandbox (agent-codex kit).
 #
 # The agent-neutral cases (ai-memory, MySQL, nested Docker) are copied from
-# verify-sandbox.sh rather than shared: that script has no CI coverage, so
+# verify-sandbox-claude.sh rather than shared: that script has no CI coverage, so
 # refactoring it to share code is a risk with nothing to catch it. The Codex
 # cases assert what only a live sandbox shows: that the generated content is
 # where Codex reads it, and that the startup steps left config.toml with both

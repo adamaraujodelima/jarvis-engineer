@@ -8,7 +8,7 @@ description: "Senior Software Engineer responsible for orchestrating agents acco
 sandbox:
   # Without this, the kit falls back to the stock Codex image, which carries
   # neither ai-memory nor the MySQL MCP server.
-  image: jarvis-engineer-codex:latest
+  image: jarvis-engineer:codex
   # Appended to the built-in codex entrypoint, which already runs Codex with
   # approvals and its own sandbox off (sbx is the sandbox). Codex's default
   # model is rejected for ChatGPT-account logins, so pin one that is accepted.
