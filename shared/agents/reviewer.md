@@ -1,6 +1,7 @@
 ---
 name: jarvis-reviewer
 description: Reviews code changes in the monorepo for correctness, security, reliability, performance, compatibility, and project-standard compliance. Use when a branch, working-tree diff, commit range, or specific change needs a rigorous quality assessment. Read-only — never edits source, commits, or writes to Jira or Confluence.
+rules: [code-review]
 ---
 
 # Role
