@@ -3,7 +3,7 @@ TARBALL := $(CURDIR)/jarvis-engineer.tar
 SANDBOX ?= jarvis-engineer
 KIT     ?= agent
 
-.PHONY: build template verify verify-image verify-kits verify-sandbox sandbox clean
+.PHONY: build template sync verify verify-sync verify-image verify-kits verify-sandbox sandbox clean
 
 ## build: build the sandbox template image
 build:
@@ -28,8 +28,17 @@ sandbox:
 	sbx create --name $(SANDBOX) --env-file .env --kit $(KIT) $(AGENT) .
 	./scripts/verify-sandbox.sh $(SANDBOX)
 
-## verify: static checks (image + kits). Use verify-sandbox for the live ones.
-verify: verify-image verify-kits
+## sync: regenerate the kit content (ROLE.md, .claude/{agents,rules,skills}) from shared/
+sync:
+	./scripts/sync-agents.sh
+
+## verify: static checks (sync + image + kits). Use verify-sandbox for the live ones.
+verify: verify-sync verify-image verify-kits
+
+## verify-sync: generator tests, then fail if the committed kit content drifted from shared/
+verify-sync:
+	./scripts/test-sync-agents.sh
+	./scripts/sync-agents.sh --check
 
 verify-image:
 	./scripts/verify-image.sh $(IMAGE)

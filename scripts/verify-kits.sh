@@ -12,11 +12,12 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
-# Discovered rather than listed: a hardcoded pair is how agents/planner and
-# agents/reviewer ended up carrying the shared ai-memory block with nothing
-# checking it. A new kit is covered the moment its spec lands.
+# Discovered rather than listed: a hardcoded pair is how two kits ended up
+# carrying the shared ai-memory block with nothing checking it. A new kit is
+# covered the moment its spec lands. `agent*` matches agent/ and any
+# agent-<target>/ kit next to it.
 KITS=()
-for spec in agents/*/spec.yaml; do
+for spec in agent*/spec.yaml; do
 	KITS+=("$(dirname "$spec")")
 done
 
@@ -62,6 +63,16 @@ missing_base() {
 	fi
 }
 
+# role_label <kit> -- the label the kit's status line must render. The unified
+# kit is the engineer orchestrator, not an "AGENT"; any other kit keeps the
+# label derived from its directory name.
+role_label() {
+	case "$(basename "$1")" in
+	agent) printf 'ENGINEER' ;;
+	*) basename "$1" | tr '[:lower:]' '[:upper:]' ;;
+	esac
+}
+
 # check <name> <expected-substring> <actual>
 check() {
 	local name="$1" expected="$2" actual="$3"
@@ -77,6 +88,11 @@ check() {
 }
 
 printf '== kit acceptance ==\n'
+
+# The kits' roles, rules and skills are generated from shared/; a hand edit or
+# a stale regeneration would ship content that no source describes.
+check "generated kit content matches shared/" 'IN SYNC' \
+	"$(./scripts/sync-agents.sh --check 2>&1 && echo 'IN SYNC')"
 
 for kit in "${KITS[@]}"; do
 	inspected="$(sbx kit inspect "$kit" 2>&1)"
@@ -108,7 +124,7 @@ for kit in "${KITS[@]}"; do
 	# startup step without it renders the "AGENT" fallback, which looks correct
 	# enough to go unnoticed.
 	check "$kit ships a role label for the status line" \
-		"$(basename "$kit" | tr '[:lower:]' '[:upper:]')" \
+		"$(role_label "$kit")" \
 		"$(cat "$kit/files/home/.jarvis-role" 2>&1)"
 
 	check "$kit declares the base network allowlist" \
@@ -190,6 +206,9 @@ shared_block() {
 		tr -s ' \n\t' ' '
 }
 
+# With one kit per family (agent/ is the only Claude kit) this loop compares
+# nothing. It stays for the next kit of the same family; the invariants that
+# must also hold across families (Claude vs Codex) arrive with the Codex kit.
 reference="${KITS[0]}"
 for kit in "${KITS[@]:1}"; do
 	if [[ "$(shared_block "$reference")" == "$(shared_block "$kit")" ]]; then
