@@ -1,7 +1,10 @@
 # ADR: One source of truth for agents, rules, and skills across Claude Code and Codex kits
 
-Status: ACCEPTED (2026-10-08; not implemented). Blocked on the spike in section 10 for the
-Codex half only. The Claude half (centralize and generate) can proceed without it.
+Status: IMPLEMENTED (accepted 2026-10-08, implemented 2026-10-09). Where the implementation
+departs from this record (hook pre-trust computed at startup through Codex's app-server instead of
+baked hashes, the bypass flag inherited from the built-in entrypoint rather than repeated, Codex
+agent files named after `name`), the reasons are in `docs/plans/codex-agent-support.md` and
+`CLAUDE.md`.
 
 Supersedes: D2 and D3 of `docs/plans/codex-agent-support.md` (coder-only pilot under `agents-codex/`).
 Keeps: that plan's facts, capability map, R1-R8, and its Codex startup-step design, except where noted.
