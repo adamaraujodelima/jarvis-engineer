@@ -18,10 +18,9 @@ updates:
         patterns: ["*"]
         update-types: [minor, patch]
 
-  # FROM lines in the repo root (Dockerfile; whether this also picks up
-  # Dockerfile.codex is unverified -- check the first run before adding an
-  # entry). Both tags are floating, so expect PRs only if a base image is ever
-  # pinned to a version or digest.
+  # FROM lines in the repo root's Dockerfile (base-claude and base-codex). Both
+  # tags are floating, so expect PRs only if a base image is ever pinned to a
+  # version or digest.
   - package-ecosystem: docker
     directory: /
     schedule:
