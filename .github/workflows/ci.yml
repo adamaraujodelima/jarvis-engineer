@@ -36,36 +36,28 @@ jobs:
         with:
           persist-credentials: false
       - run: make verify-sync
+      - run: make verify-make
       - name: Generator tests under bash 3.2
         if: runner.os == 'macOS'
         run: /bin/bash scripts/test-sync-agents.sh
 
   # What runs where: `go` builds and vets the module, `sync` runs the generator
-  # tests and the drift gate, and `image` / `image-codex` build the Claude and
-  # Codex sandbox templates and run their static image acceptance checks (each
-  # also fails when the two Dockerfiles pin different tool versions).
+  # tests, the drift gate and the Makefile dispatch tests, and `image` builds
+  # each agent's sandbox template and runs its static image acceptance checks.
   # verify-kits.sh and verify-sandbox*.sh are not run: they need the sbx CLI,
   # which is not available on GitHub-hosted runners.
   image:
+    strategy:
+      fail-fast: false
+      matrix:
+        agent: [claude, codex]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Build image
-        run: make build
-      - name: Verify image
-        run: make verify-image
-
-  image-codex:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Build Codex image
-        run: make build-codex
-      - name: Verify Codex image
-        run: make verify-image-codex
+      - name: Build ${{ matrix.agent }} image
+        run: make build ${{ matrix.agent }}
+      - name: Verify ${{ matrix.agent }} image
+        run: make verify-image ${{ matrix.agent }}
