@@ -70,15 +70,42 @@ check_label() {
 	fi
 }
 
+# arg_of <Dockerfile> <ARG name> -- the default value of that build ARG.
+arg_of() {
+	sed -n "s/^ARG $2=//p" "$1" | head -n 1
+}
+
+# same_pin <ARG name> -- Dockerfile and Dockerfile.codex duplicate their install
+# layers by design (ADR D4), so a version bumped in one must fail the job that
+# builds either image until the other follows.
+same_pin() {
+	local want="$1=$(arg_of Dockerfile "$1")" got="$1=$(arg_of Dockerfile.codex "$1")"
+	if [[ "$want" != "$1=" && "$got" == "$want" ]]; then
+		printf 'ok   Dockerfile and Dockerfile.codex pin the same %s\n' "$1"
+		pass=$((pass + 1))
+	else
+		printf 'FAIL Dockerfile and Dockerfile.codex pin the same %s\n     Dockerfile: %s\n     Dockerfile.codex: %s\n' \
+			"$1" "$want" "$got"
+		fail=$((fail + 1))
+	fi
+}
+
 printf '== image acceptance: %s ==\n' "$IMAGE"
+
+same_pin AI_MEMORY_VERSION
+same_pin GOLANGCI_LINT_VERSION
 
 check 'ai-memory resolves on the agent PATH' \
 	'/usr/local/bin/ai-memory' \
 	'command -v ai-memory'
 
-check 'ai-memory executes as uid 1000' \
-	'ai-memory 2.' \
+check 'ai-memory executes as uid 1000 at the pinned version' \
+	"ai-memory $(arg_of Dockerfile AI_MEMORY_VERSION)" \
 	'ai-memory --version'
+
+check 'golangci-lint is the pinned version' \
+	"version $(arg_of Dockerfile GOLANGCI_LINT_VERSION)" \
+	'golangci-lint version'
 
 check 'claude-code hook bundle sits at the install-hooks default path' \
 	'session-start.sh' \

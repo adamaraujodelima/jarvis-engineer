@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+#
+# Image-level acceptance checks for the jarvis-engineer-codex sandbox template.
+#
+# Same rules as verify-image.sh: every case asserts an observable output of a
+# command run as the sandbox's agent user (uid 1000), not merely that a build
+# step exited zero. The Claude-only cases (plugins, status line) have no Codex
+# counterpart and are not here.
+#
+# Usage: scripts/verify-image-codex.sh [image]
+
+set -uo pipefail
+
+cd "$(dirname "$0")/.."
+
+IMAGE="${1:-jarvis-engineer-codex:latest}"
+HOOKS_DIR=/usr/local/share/ai-memory/hooks
+
+# The codex-docker base installs npm globals here (spike S10, same prefix as
+# the Claude image); startup steps call codex by this absolute path.
+NPM_PREFIX=/usr/local/share/npm-global
+
+pass=0
+fail=0
+
+# arg_of <Dockerfile> <ARG name> -- the default value of that build ARG.
+arg_of() {
+	sed -n "s/^ARG $2=//p" "$1" | head -n 1
+}
+
+AI_MEMORY_VERSION="$(arg_of Dockerfile.codex AI_MEMORY_VERSION)"
+GOLANGCI_LINT_VERSION="$(arg_of Dockerfile.codex GOLANGCI_LINT_VERSION)"
+
+# report <name> <expected-substring> <actual>
+report() {
+	if [[ -n "$2" && "$3" == *"$2"* ]]; then
+		printf 'ok   %s\n' "$1"
+		pass=$((pass + 1))
+	else
+		printf 'FAIL %s\n     want substring: %s\n     got: %s\n' \
+			"$1" "${2:-<empty>}" "${3:-<empty>}"
+		fail=$((fail + 1))
+	fi
+}
+
+# check <name> <expected-substring> <shell-command>
+#
+# Runs the command in the image as uid 1000 and asserts the expected substring
+# appears in its combined output.
+check() {
+	report "$1" "$2" "$(docker run --rm --user 1000:1000 --entrypoint sh "$IMAGE" -c "$3" 2>&1)"
+}
+
+# check_label <name> <expected-substring> <label-key>
+#
+# Labels drive sbx's own behaviour (it reads them before the container exists),
+# so they have to be asserted on the image metadata rather than from inside it.
+check_label() {
+	report "$1" "$2" "$(docker image inspect "$IMAGE" --format "{{index .Config.Labels \"$3\"}}" 2>&1)"
+}
+
+# same_pin <ARG name> -- the two Dockerfiles duplicate their install layers by
+# design (ADR D4), so a version bumped in one must fail until the other follows.
+same_pin() {
+	report "Dockerfile and Dockerfile.codex pin the same $1" \
+		"$1=$(arg_of Dockerfile "$1")" "$1=$(arg_of Dockerfile.codex "$1")"
+}
+
+printf '== image acceptance: %s ==\n' "$IMAGE"
+
+same_pin AI_MEMORY_VERSION
+same_pin GOLANGCI_LINT_VERSION
+
+# --- ai-memory ----------------------------------------------------------
+check 'ai-memory resolves on the agent PATH' \
+	'/usr/local/bin/ai-memory' \
+	'command -v ai-memory'
+
+check 'ai-memory is the pinned version' \
+	"ai-memory $AI_MEMORY_VERSION" \
+	'ai-memory --version'
+
+check 'codex hook bundle sits at the install-hooks default path' \
+	'session-start.sh' \
+	"ls $HOOKS_DIR/codex"
+
+check 'codex hook scripts are executable by the agent' \
+	'EXEC_OK' \
+	"test -x $HOOKS_DIR/codex/session-start.sh && echo EXEC_OK"
+
+# install-hooks writes the absolute path of its own executable into
+# ~/.codex/hooks.json; it must be the stable copy, not the mise install that a
+# version bump would remove.
+check 'install-hooks writes the stable binary path into hooks.json' \
+	'/usr/local/bin/ai-memory' \
+	'AI_MEMORY_DATA_DIR=/tmp/v ai-memory init >/dev/null 2>&1;
+	 AI_MEMORY_DATA_DIR=/tmp/v ai-memory install-hooks --agent codex --apply >/dev/null 2>&1;
+	 cat ~/.codex/hooks.json'
+
+check 'install-hooks does not leak a version-pinned path' \
+	'CLEAN' \
+	'AI_MEMORY_DATA_DIR=/tmp/v ai-memory init >/dev/null 2>&1;
+	 AI_MEMORY_DATA_DIR=/tmp/v ai-memory install-hooks --agent codex --apply >/dev/null 2>&1;
+	 grep -q "/opt/mise" ~/.codex/hooks.json && echo LEAKED || echo CLEAN'
+
+# sbx writes its own ~/.codex/config.toml at create time (spike S2), so the
+# registration has to merge into that file, and a re-run must not duplicate.
+check 'install-mcp merges into config.toml, idempotently, keeping other servers' \
+	'ai-memory=1 x=1' \
+	'mkdir -p ~/.codex; printf "[mcp_servers.x]\ncommand = \"true\"\n" >~/.codex/config.toml;
+	 AI_MEMORY_DATA_DIR=/tmp/v ai-memory init >/dev/null 2>&1;
+	 AI_MEMORY_DATA_DIR=/tmp/v ai-memory install-mcp --client codex --apply >/dev/null 2>&1;
+	 AI_MEMORY_DATA_DIR=/tmp/v ai-memory install-mcp --client codex --apply >/dev/null 2>&1;
+	 echo "ai-memory=$(grep -c "^\[mcp_servers.ai-memory\]" ~/.codex/config.toml) x=$(grep -c "^\[mcp_servers.x\]" ~/.codex/config.toml)"'
+
+check 'install-mcp targets the loopback server' \
+	'127.0.0.1:49374' \
+	'AI_MEMORY_DATA_DIR=/tmp/v ai-memory init >/dev/null 2>&1;
+	 AI_MEMORY_DATA_DIR=/tmp/v ai-memory install-mcp --client codex'
+
+check 'agent can initialise a data directory' \
+	'config.toml' \
+	'AI_MEMORY_DATA_DIR=/tmp/v ai-memory init >/dev/null 2>&1; ls /tmp/v'
+
+# --- tools --------------------------------------------------------------
+check 'golangci-lint is the pinned version' \
+	"version $GOLANGCI_LINT_VERSION" \
+	'golangci-lint version'
+
+check 'mysql mcp server is installed under the npm prefix' \
+	'mcp-server-mysql' \
+	"ls $NPM_PREFIX/lib/node_modules/@benborla29"
+
+check 'codex resolves at the absolute path startup steps use' \
+	"$NPM_PREFIX/bin/codex" \
+	'command -v codex'
+
+check 'codex executes as uid 1000' \
+	'codex-cli ' \
+	"$NPM_PREFIX/bin/codex --version"
+
+# --- docker engine ------------------------------------------------------
+check_label 'image opts in to docker-in-docker' \
+	'true' \
+	'com.docker.sandboxes.start-docker'
+
+check 'dockerd is present for sbx to start' \
+	'/usr/bin/dockerd' \
+	'command -v dockerd'
+
+check 'docker CLI resolves on the agent PATH' \
+	'/usr/bin/docker' \
+	'command -v docker'
+
+check 'buildx plugin is installed' \
+	'buildx' \
+	'ls /usr/libexec/docker/cli-plugins'
+
+check 'compose plugin is installed' \
+	'compose' \
+	'ls /usr/libexec/docker/cli-plugins'
+
+# Asserted against /etc/group rather than the current process: `docker run
+# --user 1000:1000` drops supplementary groups (see verify-image.sh).
+# A sentinel rather than the bare group name: `docker` also appears in the
+# error text of a docker run that never started.
+check 'agent user is in the docker group' \
+	'IN_DOCKER_GROUP' \
+	'id -nG agent | tr " " "\n" | grep -qx docker && echo IN_DOCKER_GROUP'
+
+printf '\n%d passed, %d failed\n' "$pass" "$fail"
+[[ $fail -eq 0 ]]
