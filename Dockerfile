@@ -19,10 +19,10 @@ ARG AI_MEMORY_VERSION=2.0.1
 # golangci-lint v2 understands the repository's version: "2" configuration
 # format. Its installer selects the appropriate pre-built binary for the image
 # architecture, which keeps both amd64 and arm64 templates supported.
-ARG GOLANGCI_LINT_VERSION=2.13.
+ARG GOLANGCI_LINT_VERSION=2.13.2
 
 # Pin MCP server package to keep rebuilds deterministic and reviewed.
-ARG MCP_SERVER_MYSQL_VERSION=1.0.6
+ARG MCP_SERVER_MYSQL_VERSION=2.0.9
 
 # mise is a build-time tool only: it resolves the correct release asset for the
 # target architecture (these base images are amd64 + arm64) and verifies the
