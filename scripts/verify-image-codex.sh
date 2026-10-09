@@ -61,9 +61,19 @@ check_label() {
 
 # same_pin <ARG name> -- the two Dockerfiles duplicate their install layers by
 # design (ADR D4), so a version bumped in one must fail until the other follows.
+#
+# Compared exactly, not with report's substring match: 2.0.10 contains 2.0.1.
+# A missing ARG in both files must fail too, not compare "X=" with "X=".
 same_pin() {
-	report "Dockerfile and Dockerfile.codex pin the same $1" \
-		"$1=$(arg_of Dockerfile "$1")" "$1=$(arg_of Dockerfile.codex "$1")"
+	local want="$1=$(arg_of Dockerfile "$1")" got="$1=$(arg_of Dockerfile.codex "$1")"
+	if [[ "$want" != "$1=" && "$got" == "$want" ]]; then
+		printf 'ok   Dockerfile and Dockerfile.codex pin the same %s\n' "$1"
+		pass=$((pass + 1))
+	else
+		printf 'FAIL Dockerfile and Dockerfile.codex pin the same %s\n     Dockerfile: %s\n     Dockerfile.codex: %s\n' \
+			"$1" "$want" "$got"
+		fail=$((fail + 1))
+	fi
 }
 
 printf '== image acceptance: %s ==\n' "$IMAGE"
@@ -155,6 +165,35 @@ check 'trust-codex-hooks leaves a hook that is not ai-memory untrusted' \
 	"$install_ai_memory_hooks
 	 node -e 'const f=process.env.HOME+\"/.codex/hooks.json\",fs=require(\"fs\"),h=JSON.parse(fs.readFileSync(f));h.hooks.Stop.push({matcher:\"\",hooks:[{type:\"command\",command:\"sh -c true\"}]});fs.writeFileSync(f,JSON.stringify(h))';
 	 trust-codex-hooks >/dev/null 2>&1; $hook_trust_counts"
+
+# A command that merely starts like ai-memory's (here with a shell command
+# appended) is not ai-memory's hook, and must not be trusted.
+check 'trust-codex-hooks leaves a hook that only starts like ai-memory untrusted' \
+	'trusted=6 untrusted=1' \
+	"$install_ai_memory_hooks
+	 node -e 'const f=process.env.HOME+\"/.codex/hooks.json\",fs=require(\"fs\"),h=JSON.parse(fs.readFileSync(f));h.hooks.Stop.push({matcher:\"\",hooks:[{type:\"command\",command:\"/usr/local/bin/ai-memory --x hook --event stop; touch /tmp/spoofed\"}]});fs.writeFileSync(f,JSON.stringify(h))';
+	 trust-codex-hooks >/dev/null 2>&1; $hook_trust_counts"
+
+# Startup steps have no timeout of their own, so the helper must return even
+# when the app-server ignores SIGTERM. The fake answers every request (one
+# ai-memory hook, already trusted) and then refuses to die.
+check 'trust-codex-hooks returns when the app-server ignores SIGTERM' \
+	'EXIT=0' \
+	'cat >/tmp/fake-codex <<EOF
+#!/usr/bin/env node
+process.on("SIGTERM", () => {});
+setInterval(() => {}, 1000);
+require("readline").createInterface({ input: process.stdin }).on("line", (line) => {
+  const m = JSON.parse(line);
+  if (m.id === undefined) return;
+  const hook = { key: "k", sourcePath: process.env.HOME + "/.codex/hooks.json", handlerType: "command",
+    command: "/usr/local/bin/ai-memory hook --event stop", trustStatus: "trusted", currentHash: "h" };
+  const result = m.method === "hooks/list" ? { data: [{ cwd: process.env.HOME, hooks: [hook] }] } : {};
+  process.stdout.write(JSON.stringify({ id: m.id, result }) + "\n");
+});
+EOF
+	 chmod +x /tmp/fake-codex;
+	 CODEX_BIN=/tmp/fake-codex timeout 15 trust-codex-hooks >/dev/null 2>&1; echo "EXIT=$?"'
 
 # sbx writes its own config.toml (model provider, MCP gateway) before the
 # startup steps run; losing it would cut the agent off from the model.

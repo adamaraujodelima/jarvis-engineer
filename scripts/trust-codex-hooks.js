@@ -26,7 +26,12 @@ const path = require('path');
 const CODEX = process.env.CODEX_BIN || '/usr/local/share/npm-global/bin/codex';
 const HOME = process.env.HOME;
 const HOOKS_FILE = path.join(HOME, '.codex', 'hooks.json');
-const AI_MEMORY_HOOK = /^\/usr\/local\/bin\/ai-memory .* hook --event /;
+// The whole command, not a prefix: it runs through a shell, so anything after
+// ai-memory's own arguments (`; ...`, `| ...`) would be trusted along with it.
+// Arguments are restricted to the characters ai-memory's own handler uses
+// (flags, paths, the loopback server URL).
+const ARG = '[A-Za-z0-9_./:=-]+';
+const AI_MEMORY_HOOK = new RegExp(`^/usr/local/bin/ai-memory( ${ARG})* hook --event [a-z-]+( ${ARG})*$`);
 const TIMEOUT_MS = 30000;
 
 const server = spawn(CODEX, ['app-server'], { stdio: ['pipe', 'pipe', 'ignore'] });
@@ -122,4 +127,9 @@ main()
     server.removeAllListeners('exit');
     server.stdin.end();
     server.kill();
+    // A startup step has no timeout of its own: if the app-server ignores
+    // SIGTERM, its open stdout pipe would keep this process alive forever.
+    // Let go of it so we exit with our own result regardless.
+    server.stdout.destroy();
+    server.unref();
   });

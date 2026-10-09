@@ -120,8 +120,11 @@ It also installs `scripts/trust-codex-hooks.js` as `/usr/local/bin/trust-codex-h
 a hook only after its exact definition is trusted (a per-handler hash under `[hooks.state]` in
 `~/.codex/config.toml`), and sbx recreates `~/.codex` per sandbox. The helper asks the installed
 Codex's app-server for the current hashes (`hooks/list`) and trusts only ai-memory's handlers in
-`~/.codex/hooks.json` through `config/batchWrite`, the call Codex's own review UI makes. No hash is
-baked in, so upgrades do not break it silently; any other hook still goes through Codex's review.
+`~/.codex/hooks.json` through `config/batchWrite`, the call Codex's own review UI makes. A handler
+counts as ai-memory's only if its whole command matches ai-memory's form (a command that merely
+starts like it, e.g. with `; ...` appended, is not trusted). No hash is baked in, so upgrades do not
+break it silently; any other hook still goes through Codex's review. It lets go of the app-server
+after use, so a server that ignores SIGTERM cannot hang sandbox startup.
 
 ### Kit (`agent/spec.yaml` + `agent/files/home/`)
 
@@ -144,7 +147,8 @@ Two things about the agent files are worth knowing before editing them:
 
 The kit also ships `files/home/.jarvis-role` (`ENGINEER`), which is the static role label the
 status line renders. It is a file rather than an `environment.variables` entry because
-`verify-kits.sh` byte-compares that block across kits, so a per-kit value there reads as drift.
+`verify-kits.sh` byte-compares that block across the kits of a family, so a per-kit value there
+reads as drift.
 `$JARVIS_ROLE` overrides it; with neither, the line falls back to `AGENT`.
 
 The network allowlist is a base block that every kit must carry plus `registry.npmjs.org` /
@@ -152,9 +156,10 @@ The network allowlist is a base block that every kit must carry plus `registry.n
 the base is complete per kit, because the `permissions:` block sits above the shared block and is
 invisible to the drift comparison.
 
-The spec carries a block that every kit duplicates verbatim (this is intentional, not an
-oversight — `extends` only resolves _built-in_ agents, so pointing it at a local kit for
-de-duplication resolves to an empty parent while `sbx kit validate` still reports `VALID`):
+The spec carries a block that every Claude-family kit duplicates verbatim (this is intentional,
+not an oversight — `extends` only resolves _built-in_ agents, so pointing it at a local kit for
+de-duplication resolves to an empty parent while `sbx kit validate` still reports `VALID`). The
+Codex kit carries its own variant of it, described under "Codex kit" below:
 
 - an `AI_MEMORY_DATA_DIR` volume at `/var/lib/ai-memory` (chowned to uid 1000 on install, since
   volumes mount root:root and `/home/agent` itself is reset on every sandbox creation)
