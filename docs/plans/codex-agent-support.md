@@ -1,12 +1,15 @@
 # Plan: centralize agent content under `shared/`, then add a Codex kit
 
-Status: READY for Phase 1. Phase 2 needs the user (host). Phase 3 is gated on the Phase 2 results.
+Status: Phase 1 DONE (2026-10-09; Step 1.11 gate green except the host-MySQL greeting, see there; branch
+protection change still open). Phase 2 DONE (2026-10-09) except S9's inherited
+allowlist, which is not a gate: content-path direct, AGENTS.md budget 16 KiB, no agent cap, read-only not enforced,
+hook-mode pretrust, mysql forward via `env_vars`, model `gpt-5.6-terra`. Phase 3 is unblocked except for Step 3.1 (the user's rule bindings).
 Authority: `docs/architecture/agent-centralization.md` (the ADR). This file replaces the earlier draft
 (coder-only pilot, `agents-codex/`), which the ADR superseded. Facts from that draft that still
 hold (Codex config, ai-memory 2.0.1 behavior, base image names) are carried into Phase 3 below.
 
-Nothing here has been implemented or run. `sbx` is not installed in the planning sandbox, so no
-`sbx kit ...` or live-sandbox claim below has been observed.
+This plan was written in a sandbox without `sbx`. Where a step has a "Result" note or a filled spike row, that
+result was observed on the host. Everything else is still unverified.
 
 ## 0. Decisions and working rules
 
@@ -304,6 +307,16 @@ merged into `shared/`.
   `sbx exec jarvis-engineer -- sh -c 'ls ~/.claude/agents ~/.claude/rules; head -2 ~/ROLE.md'` and open Claude's agent list to confirm all 7 agents
   parse (the reviewer now has a valid fence) and the orchestrator reads `jarvis-*` names. If the marker line changes agent behavior
   in any observable way, the marker is one constant in the script and can be removed; `--check` still guards edits.
+- Result (2026-10-09, macOS host, sbx v0.47.0, Claude Code 2.1.280):
+  - `test-sync-agents.sh` 44/44, `sync-agents.sh --check` clean, `go build`/`go vet` clean.
+  - `make verify-image` 35/35, `make verify-kits` 21/21.
+  - Live tier ran as `make sandbox SANDBOX=jarvis-p1-check` (a throwaway name, so the existing `jarvis-engineer`
+    sandbox was not removed): 16/17. The one failure is "the port answers as a real MySQL server": nothing listened on
+    host port 3306 at the time, and the sandbox side accepted the TCP connection and then closed it with no bytes.
+    That is the environment, not this change. Re-run `make verify-sandbox` with MySQL up before merge.
+  - All 7 `jarvis-*` agents are listed by Claude in the sandbox, `~/.claude/rules` holds the 5 rules, and `~/ROLE.md`
+    starts with the marker then `# Role`. `claude agents --json` lists background sessions, not sub-agent definitions,
+    so the agent list was taken from a `claude -p` run instead.
 
 ## 4. Phase 2: spike S1 to S10 (the user runs these on the host)
 
@@ -368,16 +381,31 @@ Spike results (fill in; this is the gate for Phase 3):
 
 | # | Result | Evidence (path or pasted output) | Decision flag |
 |---|--------|----------------------------------|---------------|
-| S1 | | | `content-path: direct / restore-step` |
-| S2 | | | |
-| S3 | | | |
-| S4 | | | `agents-md-budget: <bytes>` |
-| S5 | | | `agent-cap: none / <bytes>` |
-| S6 | | | `ro-enforced: yes / no` |
-| S7 | | | `hook-mode: pretrust / bypass / mcp-only` |
-| S8 | | | `mysql: forward / none` |
-| S9 | | | |
-| S10 | | | `node: present / install`; `npm-prefix: <path>` |
+| S1 | Loaded directly from the kit paths. Codex quoted `SPIKE-GLOBAL-LINE-1` from `~/.codex/AGENTS.md`, listed `jarvis-big`, `jarvis-ro` and `jarvis-spike` next to its built-ins (`default`, `explorer`, `worker`), and listed both `.agents/skills` skills next to its bundled ones. No copy step needed. Re-run with `-m gpt-5.6-terra`. | `~/spike/s1.txt`, `s1-files.txt` | `content-path: direct` |
+| S2 | `~/.codex/config.toml` exists right after create, before Codex ever starts (613 bytes, written by sbx at create time). It sets `approval_policy = "never"`, `sandbox_mode = "danger-full-access"`, `forced_login_method = "api"`, `model_provider = "sandboxd"` (proxy at `chatgpt.com/backend-api/codex`), and an `mcp_servers.mcp-gateway` HTTP server. `~/.codex/auth.json` is also written. Startup steps must merge into this file, not replace it. | `~/spike/s2.txt` | |
+| S3 | `spike-extra` (with Claude-only `model:`/`paths:` keys) is listed like any other skill. No warning or error in the output. Extra keys are tolerated, and the source allows only `name`/`description` anyway. | `~/spike/s1.txt` | |
+| S4 | `G-20; P-20`: the full 20,140-byte global and 20,120-byte project `AGENTS.md` were both seen, about 40 KiB combined. No separate cap at 20 KiB and no combined cap at 32 KiB at these sizes. This is the model's self-report; the markers were unique and it named the last one in both files. `codex execpolicy` is a policy checker (`check`), not a rules loader, and `probe.md` in `~/.codex/rules` produced no warning. | `~/spike/s4.txt` | `agents-md-budget: 16384` (ADR default kept; at least 20,140 bytes measured as safe) |
+| S5 | Both agents found and invoked by their hyphenated names. `jarvis-spike` replied `SPIKE-AGENT-OK`. `jarvis-big` reported `B-32`, its last marker, so a 32,295-byte `developer_instructions` was not cut off. | `~/spike/s5.txt` | `agent-cap: none` (at 32 KB) |
+| S6 | **Not enforced.** `jarvis-ro` (with `sandbox_mode = "read-only"`) wrote `/home/agent/ro-probe.txt`; the control `rw-probe.txt` was also written. Both are on disk, which is the filesystem evidence, not just the model's report. The parent session runs `danger-full-access` (sbx's `config.toml`, S2), and the per-agent key did not restrict the sub-agent. | `~/spike/s6.txt` | `ro-enforced: no` (prompt-only, I7; no `codex.sandbox_mode` key) |
+| S7 | `features.hooks` is `stable true` by default, so no startup step is needed for it. In a fresh sandbox (the S8 one), `codex exec` without the bypass flag ran **no** hooks and stored no trust. `--dangerously-bypass-hook-trust` exists and runs them: S7b-flag, both logs written. Approving the hook review interactively stores trust in `~/.codex/config.toml`, one table per handler: `[hooks.state."<hooks.json path>:<event>:<group>:<handler>"] trusted_hash = "sha256:..."`. Global and project hooks are keyed separately. After approval, `codex exec` without the flag runs them (S7b). The hash is Codex's `hook_hash()` (`codex-rs/hooks/src/engine/discovery.rs`): `version_for_toml` over a normalized `{event, matcher group, handler}` identity, not a hash of the JSON or command text, and no CLI sets it. It can still be pre-trusted: the key path is fixed (`/home/agent/.codex/hooks.json`), and the hooks come from pinned `ai-memory install-hooks`, so the hashes are stable for a pinned ai-memory and Codex pair. Capture them once from an approved sandbox and have a startup step merge them into `config.toml`. `verify-sandbox` must then assert the hooks fire, so a version bump that changes the hashes fails loudly. S7c (Claude parity) not run. Not needed for the decision, since stored trust exists. | `~/spike/s7a.txt`, `s7b-flags.txt`, `s7b-flag.txt`, `s7b.txt` | `hook-mode: pretrust` (captured hashes) |
+| S8 | `SPIKE_PROBE` is in the sandbox environment, but the stdio MCP server's environment contains only `HOME NODE_EXTRA_CA_CERTS PATH PWD REQUESTS_CA_BUNDLE SSL_CERT_FILE`: Codex does not pass the environment through by default. `codex mcp add --env KEY=VALUE` writes the **value** into `config.toml`, which is not allowed. The names-only key works: with `-c 'mcp_servers.probe.env_vars=["SPIKE_PROBE"]'`, the server's environment contains `SPIKE_PROBE` (count 1, `~/spike/s8b.txt`). Register MySQL with `env_vars = ["MYSQL_HOST", "MYSQL_PORT", "MYSQL_USER", "MYSQL_PASS"]` and no values. | `~/spike/s8.txt` | `mysql: forward` (`env_vars`) |
+| S9 | Partial. `sbx kit inspect codex` is rejected: built-in agents are not a kit reference (`not a local path and does not look like a registry reference`). `sbx kit inspect` on a kit shows only that kit's own fields, never the inherited parent's, so it cannot show the inherited `command`, allowlist or credentials. The inherited Codex config is visible in S2 instead. Still to get: the inherited allowlist, from a live sandbox (`sbx policy`, or whatever `sbx --help` offers). | `~/spike/s9-codex.txt` | |
+| S10 | `codex-cli 0.149.1` at `/usr/local/share/npm-global/bin/codex`. `node` v22.22.1, `npm`, `npx`, `jq`, `git`, `dockerd`, `docker` all present. npm prefix `/usr/local/share/npm-global` (same as the Claude image). User `agent` uid 1000, `HOME=/home/agent`, entrypoint `tini --`. `com.docker.sandboxes.start-docker=true`, base `ubuntu:questing` (26.04). `~/.codex` exists in the image and `~/.agents` does not. The image's `agent` is not in the `docker` group, but a live sandbox's is (gid 1001), so sbx adds it. | `~/spike/s10.txt` | `node: present`; `npm-prefix: /usr/local/share/npm-global` |
+
+Blockers found while running Phase 2 (2026-10-09):
+
+- `sbx create` printed `Note: no binding authorizes openai — the credential was not injected. Create a binding (re-run
+  interactively, or edit ~/.config/sbx/credentials.yaml) to use it.` The global `openai` OAuth secret exists, but no
+  binding authorizes it for this sandbox. Create the binding before S1/S3–S8. It is probably needed for the Phase 3 kit too.
+- Claude Code's auto-mode classifier refuses to run `codex exec --dangerously-bypass-approvals-and-sandbox` for the
+  assistant. Every item that runs Codex (S1 loading, S3–S8) is therefore left for the user, as section 4's title intended.
+  The sandbox `codex-spike` is kept for those runs.
+- `codex exec` launched through `sbx exec` waits forever (`Reading additional input from stdin...`) unless stdin is
+  `</dev/null`. Phase 3 startup steps and live checks that call `codex exec` need the same redirect.
+- Every model call failed with `The 'gpt-5.6-sol' model is not supported when using Codex with a ChatGPT account.`
+  `gpt-5.6-sol` is the catalog default (`codex debug models`). The catalog also lists `gpt-5.6-terra`, `gpt-5.6-luna`,
+  `gpt-5.5` and `gpt-5.2`. Re-ran S1, S3–S6 with `-m gpt-5.6-terra`, which the account accepts. The Phase 3 kit has to pin it
+  (`model = "gpt-5.6-terra"` merged into `config.toml`, or `-m` in the kit `command`).
 
 Hook-mode decision order (U3, ADR D6): stored trust available (S7b) -> `pretrust`; else Claude parity (S7c) -> `bypass`; else `mcp-only`.
 
