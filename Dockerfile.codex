@@ -46,11 +46,18 @@ RUN npm install -g @benborla29/mcp-server-mysql
 RUN curl -sSfL https://golangci-lint.run/install.sh \
  | sh -s -- -b /usr/local/bin "v${GOLANGCI_LINT_VERSION}"
 
+# Re-trusts ai-memory's hooks on every sandbox start (Codex runs untrusted
+# hooks not at all, and sbx recreates ~/.codex). Outside $HOME for the same
+# reason: everything under it is per-sandbox state.
+COPY scripts/trust-codex-hooks.js /usr/local/bin/trust-codex-hooks
+RUN chmod 0755 /usr/local/bin/trust-codex-hooks
+
 # Fail the build rather than ship an image whose tools the agent cannot reach.
 RUN su agent -s /bin/sh -c 'ai-memory --version' | grep -q "ai-memory ${AI_MEMORY_VERSION}" \
  && golangci-lint version | grep -q "version ${GOLANGCI_LINT_VERSION}" \
  && su agent -s /bin/sh -c 'test -x /usr/local/share/ai-memory/hooks/codex/session-start.sh' \
  && su agent -s /bin/sh -c '/usr/local/share/npm-global/bin/codex --version' \
+ && su agent -s /bin/sh -c 'command -v trust-codex-hooks' \
  && test -d /usr/local/share/npm-global/lib/node_modules/@benborla29/mcp-server-mysql \
  && command -v dockerd >/dev/null \
  && id -nG agent | grep -qw docker

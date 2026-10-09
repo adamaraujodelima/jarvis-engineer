@@ -122,6 +122,53 @@ check 'agent can initialise a data directory' \
 	'config.toml' \
 	'AI_MEMORY_DATA_DIR=/tmp/v ai-memory init >/dev/null 2>&1; ls /tmp/v'
 
+# --- hook trust ---------------------------------------------------------
+# Codex runs no hook until its exact definition is trusted, and sbx recreates
+# ~/.codex per sandbox, so the trust has to be re-established by a startup
+# step (spike S7: hook-mode pretrust). trust-codex-hooks asks Codex's own
+# app-server for each hook's current hash and trusts only ai-memory's.
+#
+# hook_trust_counts: prints trusted=<n> untrusted=<n> as Codex itself reports
+# them, read from the app-server independently of the helper under test.
+hook_trust_counts='(printf "%s\n" "{\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"verify\",\"version\":\"0\"}}}" "{\"method\":\"initialized\"}" "{\"id\":2,\"method\":\"hooks/list\",\"params\":{\"cwds\":[\"$HOME\"]}}"; sleep 4) | timeout 20 '"$NPM_PREFIX"'/bin/codex app-server 2>/dev/null | grep "\"id\":2" >/tmp/list.json;
+	 echo "trusted=$(grep -o "\"trustStatus\":\"trusted\"" /tmp/list.json | wc -l | tr -d " ") untrusted=$(grep -o "\"trustStatus\":\"untrusted\"" /tmp/list.json | wc -l | tr -d " ")"'
+
+install_ai_memory_hooks='AI_MEMORY_DATA_DIR=/tmp/v ai-memory init >/dev/null 2>&1;
+	 AI_MEMORY_DATA_DIR=/tmp/v ai-memory install-hooks --agent codex --apply >/dev/null 2>&1;'
+
+check 'trust-codex-hooks resolves on the agent PATH' \
+	'/usr/local/bin/trust-codex-hooks' \
+	'command -v trust-codex-hooks'
+
+check 'ai-memory hooks start untrusted (the baseline the helper changes)' \
+	'trusted=0 untrusted=6' \
+	"$install_ai_memory_hooks $hook_trust_counts"
+
+check 'trust-codex-hooks makes Codex report every ai-memory hook trusted' \
+	'trusted=6 untrusted=0' \
+	"$install_ai_memory_hooks trust-codex-hooks >/dev/null 2>&1; $hook_trust_counts"
+
+# Only ai-memory's hooks are pre-trusted (ADR D6); anything else in the file
+# still goes through Codex's own review.
+check 'trust-codex-hooks leaves a hook that is not ai-memory untrusted' \
+	'trusted=6 untrusted=1' \
+	"$install_ai_memory_hooks
+	 node -e 'const f=process.env.HOME+\"/.codex/hooks.json\",fs=require(\"fs\"),h=JSON.parse(fs.readFileSync(f));h.hooks.Stop.push({matcher:\"\",hooks:[{type:\"command\",command:\"sh -c true\"}]});fs.writeFileSync(f,JSON.stringify(h))';
+	 trust-codex-hooks >/dev/null 2>&1; $hook_trust_counts"
+
+# sbx writes its own config.toml (model provider, MCP gateway) before the
+# startup steps run; losing it would cut the agent off from the model.
+check 'trust-codex-hooks keeps the existing config.toml keys' \
+	'model_provider = "sandboxd"' \
+	"$install_ai_memory_hooks printf 'model_provider = \"sandboxd\"\n' >~/.codex/config.toml;
+	 trust-codex-hooks >/dev/null 2>&1; cat ~/.codex/config.toml"
+
+# A non-zero startup step silently aborts every later step, and startup steps
+# re-run on every sandbox start.
+check 'trust-codex-hooks is idempotent' \
+	'RUN2_OK' \
+	"$install_ai_memory_hooks trust-codex-hooks >/dev/null 2>&1; trust-codex-hooks >/dev/null 2>&1 && echo RUN2_OK"
+
 # --- tools --------------------------------------------------------------
 check 'golangci-lint is the pinned version' \
 	"version $GOLANGCI_LINT_VERSION" \
