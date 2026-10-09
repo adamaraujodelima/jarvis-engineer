@@ -19,16 +19,19 @@ ARG AI_MEMORY_VERSION=2.0.1
 # golangci-lint v2 understands the repository's version: "2" configuration
 # format. Its installer selects the appropriate pre-built binary for the image
 # architecture, which keeps both amd64 and arm64 templates supported.
-ARG GOLANGCI_LINT_VERSION=2.13.2
+ARG GOLANGCI_LINT_VERSION=2.13.
+
+# Pin MCP server package to keep rebuilds deterministic and reviewed.
+ARG MCP_SERVER_MYSQL_VERSION=1.0.6
 
 # mise is a build-time tool only: it resolves the correct release asset for the
 # target architecture (these base images are amd64 + arm64) and verifies the
 # published .sha256. Redirect it out of $HOME -- /root is mode 0700, so anything
 # installed there is unreachable by the agent user the sandbox actually runs as.
 ENV MISE_INSTALL_PATH=/usr/local/bin/mise \
-    MISE_DATA_DIR=/opt/mise \
-    MISE_CONFIG_DIR=/opt/mise \
-    MISE_YES=1
+  MISE_DATA_DIR=/opt/mise \
+  MISE_CONFIG_DIR=/opt/mise \
+  MISE_YES=1
 
 RUN curl -fsSL https://mise.run/bash | sh
 
@@ -41,16 +44,16 @@ RUN curl -fsSL https://mise.run/bash | sh
 # ("/opt/mise/installs/.../2.0.1/ai-memory") into the agent's hook config, which
 # breaks the moment AI_MEMORY_VERSION is bumped.
 RUN mise use -g "github:akitaonrails/ai-memory@${AI_MEMORY_VERSION}" \
- && src="$(mise where "github:akitaonrails/ai-memory@${AI_MEMORY_VERSION}")" \
- && install -m 0755 "$src/ai-memory" /usr/local/bin/ai-memory \
- && mkdir -p /usr/local/share/ai-memory \
- && cp -R "$src/hooks" /usr/local/share/ai-memory/hooks \
- && chmod -R a+rX /usr/local/share/ai-memory/hooks
+  && src="$(mise where "github:akitaonrails/ai-memory@${AI_MEMORY_VERSION}")" \
+  && install -m 0755 "$src/ai-memory" /usr/local/bin/ai-memory \
+  && mkdir -p /usr/local/share/ai-memory \
+  && cp -R "$src/hooks" /usr/local/share/ai-memory/hooks \
+  && chmod -R a+rX /usr/local/share/ai-memory/hooks
 
-RUN npm install -g @benborla29/mcp-server-mysql
+RUN npm install -g "@benborla29/mcp-server-mysql@${MCP_SERVER_MYSQL_VERSION}"
 
 RUN curl -sSfL https://golangci-lint.run/install.sh \
- | sh -s -- -b /usr/local/bin "v${GOLANGCI_LINT_VERSION}"
+  | sh -s -- -b /usr/local/bin "v${GOLANGCI_LINT_VERSION}"
 
 # Bake the Claude Code plugins into the template. A sandbox gets a fresh
 # ~/.claude, so plugins installed by hand are gone the next time one is created
@@ -81,10 +84,10 @@ COPY scripts/jarvis-statusline.sh /usr/local/bin/jarvis-statusline
 # /root paths that uid 1000 cannot read -- the same trap mise fell into above.
 # `su` alone does not set HOME, so it is passed explicitly.
 RUN chmod 0755 /usr/local/bin/install-claude-plugins \
- && chmod 0644 /usr/local/share/jarvis-engineer/config.json \
- && chmod 0755 /usr/local/bin/restore-claude-plugins \
- && chmod 0755 /usr/local/bin/jarvis-statusline \
- && su agent -s /bin/sh -c "HOME=/home/agent install-claude-plugins"
+  && chmod 0644 /usr/local/share/jarvis-engineer/config.json \
+  && chmod 0755 /usr/local/bin/restore-claude-plugins \
+  && chmod 0755 /usr/local/bin/jarvis-statusline \
+  && su agent -s /bin/sh -c "HOME=/home/agent install-claude-plugins"
 
 # Snapshot the two settings keys the install just wrote. `sbx create` recreates
 # ~/.claude/settings.json from scratch, so those keys never reach a sandbox --
@@ -96,34 +99,34 @@ RUN chmod 0755 /usr/local/bin/install-claude-plugins \
 # from its own manifest, not its repo path, so only the resolved settings say
 # which name each plugin id refers to.
 RUN node -e ' \
-      const fs = require("fs"); \
-      const s = JSON.parse(fs.readFileSync("/home/agent/.claude/settings.json", "utf8")); \
-      const keys = ["enabledPlugins", "extraKnownMarketplaces"]; \
-      for (const k of keys) { \
-        if (!s[k] || Object.keys(s[k]).length === 0) { \
-          console.error(`plugin install left ${k} empty`); \
-          process.exit(1); \
-        } \
-      } \
-      const out = {}; \
-      for (const k of keys) out[k] = s[k]; \
-      fs.writeFileSync("/usr/local/share/jarvis-engineer/plugin-settings.json", \
-        JSON.stringify(out, null, 2) + "\n"); \
-    ' \
- && chmod 0644 /usr/local/share/jarvis-engineer/plugin-settings.json
+  const fs = require("fs"); \
+  const s = JSON.parse(fs.readFileSync("/home/agent/.claude/settings.json", "utf8")); \
+  const keys = ["enabledPlugins", "extraKnownMarketplaces"]; \
+  for (const k of keys) { \
+  if (!s[k] || Object.keys(s[k]).length === 0) { \
+  console.error(`plugin install left ${k} empty`); \
+  process.exit(1); \
+  } \
+  } \
+  const out = {}; \
+  for (const k of keys) out[k] = s[k]; \
+  fs.writeFileSync("/usr/local/share/jarvis-engineer/plugin-settings.json", \
+  JSON.stringify(out, null, 2) + "\n"); \
+  ' \
+  && chmod 0644 /usr/local/share/jarvis-engineer/plugin-settings.json
 
 # Fail the build rather than ship an image whose tools the agent cannot reach.
 RUN su agent -s /bin/sh -c 'ai-memory --version' \
- && golangci-lint version | grep -q "version ${GOLANGCI_LINT_VERSION}" \
- && su agent -s /bin/sh -c 'test -x /usr/local/share/ai-memory/hooks/claude-code/session-start.sh' \
- && command -v dockerd >/dev/null \
- && id -nG agent | grep -qw docker \
- && su agent -s /bin/sh -c 'HOME=/home/agent /home/agent/.local/bin/claude plugin list --json' \
-      | grep -q '"enabled": true' \
- && su agent -s /bin/sh -c 'HOME=/home/agent restore-claude-plugins' \
- && su agent -s /bin/sh -c 'HOME=/home/agent JARVIS_ROLE=CODER jarvis-statusline </dev/null' \
-      | grep -q '^CODER | ' \
- && ! su agent -s /bin/sh -c 'HOME=/home/agent /home/agent/.local/bin/claude plugin list --json' \
-      | grep -q '"enabled": false'
+  && golangci-lint version | grep -q "version ${GOLANGCI_LINT_VERSION}" \
+  && su agent -s /bin/sh -c 'test -x /usr/local/share/ai-memory/hooks/claude-code/session-start.sh' \
+  && command -v dockerd >/dev/null \
+  && id -nG agent | grep -qw docker \
+  && su agent -s /bin/sh -c 'HOME=/home/agent /home/agent/.local/bin/claude plugin list --json' \
+  | grep -q '"enabled": true' \
+  && su agent -s /bin/sh -c 'HOME=/home/agent restore-claude-plugins' \
+  && su agent -s /bin/sh -c 'HOME=/home/agent JARVIS_ROLE=CODER jarvis-statusline </dev/null' \
+  | grep -q '^CODER | ' \
+  && ! su agent -s /bin/sh -c 'HOME=/home/agent /home/agent/.local/bin/claude plugin list --json' \
+  | grep -q '"enabled": false'
 
 USER agent
