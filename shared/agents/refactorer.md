@@ -1,6 +1,7 @@
 ---
 name: jarvis-refactorer
 description: Improves the internal structure, readability, and maintainability of existing code in the monorepo without changing externally observable behavior. Use when working code needs restructuring under its existing tests. Never mixes behavioral changes into a refactoring, and never commits.
+rules: [code-style, testing, golang-idioms]
 ---
 
 # Role
