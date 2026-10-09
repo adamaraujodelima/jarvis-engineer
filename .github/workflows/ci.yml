@@ -23,9 +23,28 @@ jobs:
           cache: false
       - run: go build ./... && go vet ./...
 
-  # Builds the sandbox template and runs the static image acceptance checks.
-  # verify-kits.sh and verify-sandbox.sh are not run: they need the sbx CLI,
-  # which is not available on GitHub-hosted runners.
+  # Generator tests and the drift gate for the kit content generated from
+  # shared/. Needs only bash and POSIX tools; the macOS leg also runs the tests
+  # under the system /bin/bash (3.2), which the generator must support.
+  sync:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: make verify-sync
+      - name: Generator tests under bash 3.2
+        if: runner.os == 'macOS'
+        run: /bin/bash scripts/test-sync-agents.sh
+
+  # What runs where: `go` builds and vets the module, `sync` runs the generator
+  # tests and the drift gate, and this job builds the sandbox template and runs
+  # the static image acceptance checks. verify-kits.sh and verify-sandbox.sh are
+  # not run: they need the sbx CLI, which is not available on GitHub-hosted
+  # runners.
   image:
     runs-on: ubuntu-latest
     timeout-minutes: 60
