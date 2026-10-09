@@ -1,13 +1,18 @@
-IMAGE   := jarvis-engineer:latest
-TARBALL := $(CURDIR)/jarvis-engineer.tar
+IMAGE       := jarvis-engineer:latest
+CODEX_IMAGE := jarvis-engineer-codex:latest
+TARBALL     := $(CURDIR)/jarvis-engineer.tar
 SANDBOX ?= jarvis-engineer
 KIT     ?= agent
 
-.PHONY: build template sync verify verify-sync verify-image verify-kits verify-sandbox sandbox clean
+.PHONY: build build-codex template sync verify verify-sync verify-image verify-image-codex verify-kits verify-sandbox sandbox clean
 
 ## build: build the sandbox template image
 build:
 	docker build -t $(IMAGE) .
+
+## build-codex: build the Codex sandbox template image
+build-codex:
+	docker build -f Dockerfile.codex -t $(CODEX_IMAGE) .
 
 ## template: load the built image into sbx as a reusable template
 template: build verify-image
@@ -42,6 +47,9 @@ verify-sync:
 
 verify-image:
 	./scripts/verify-image.sh $(IMAGE)
+
+verify-image-codex:
+	./scripts/verify-image-codex.sh $(CODEX_IMAGE)
 
 verify-kits:
 	./scripts/verify-kits.sh

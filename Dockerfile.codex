@@ -1,0 +1,58 @@
+# Codex counterpart of Dockerfile (ADR D4, docs/architecture/agent-centralization.md).
+#
+# The `-docker` flavour of the Codex base template, for the same reason the
+# Claude image uses `claude-code-docker`: it ships dockerd/containerd and the
+# `com.docker.sandboxes.start-docker=true` label that makes sbx start a nested
+# Docker Engine (never the host's) before the agent runs. It already carries
+# node, npm and the codex CLI under /usr/local/share/npm-global (spike S10).
+#
+# The install layers below duplicate Dockerfile's on purpose; a shared install
+# script would save three RUN lines and couple the two images. The two version
+# ARGs must stay equal across both files: verify-image.sh and
+# verify-image-codex.sh each fail when they differ. Nothing Claude-specific
+# (plugins, status line) belongs here.
+FROM docker/sandbox-templates:codex-docker
+
+USER root
+
+# Pin the release so template rebuilds are reproducible. Bump deliberately, and
+# in Dockerfile too.
+ARG AI_MEMORY_VERSION=2.0.1
+
+# Same version as Dockerfile; see there.
+ARG GOLANGCI_LINT_VERSION=2.13.2
+
+# Build-time only, redirected out of /root for the same reason as in Dockerfile.
+ENV MISE_INSTALL_PATH=/usr/local/bin/mise \
+    MISE_DATA_DIR=/opt/mise \
+    MISE_CONFIG_DIR=/opt/mise \
+    MISE_YES=1
+
+RUN curl -fsSL https://mise.run/bash | sh
+
+# Copied, not symlinked: `install-hooks --agent codex` writes the absolute path
+# of its own executable into ~/.codex/hooks.json, and a symlink would resolve
+# to the version-pinned mise path. The hook bundle goes to the path
+# install-hooks defaults to.
+RUN mise use -g "github:akitaonrails/ai-memory@${AI_MEMORY_VERSION}" \
+ && src="$(mise where "github:akitaonrails/ai-memory@${AI_MEMORY_VERSION}")" \
+ && install -m 0755 "$src/ai-memory" /usr/local/bin/ai-memory \
+ && mkdir -p /usr/local/share/ai-memory \
+ && cp -R "$src/hooks" /usr/local/share/ai-memory/hooks \
+ && chmod -R a+rX /usr/local/share/ai-memory/hooks
+
+RUN npm install -g @benborla29/mcp-server-mysql
+
+RUN curl -sSfL https://golangci-lint.run/install.sh \
+ | sh -s -- -b /usr/local/bin "v${GOLANGCI_LINT_VERSION}"
+
+# Fail the build rather than ship an image whose tools the agent cannot reach.
+RUN su agent -s /bin/sh -c 'ai-memory --version' | grep -q "ai-memory ${AI_MEMORY_VERSION}" \
+ && golangci-lint version | grep -q "version ${GOLANGCI_LINT_VERSION}" \
+ && su agent -s /bin/sh -c 'test -x /usr/local/share/ai-memory/hooks/codex/session-start.sh' \
+ && su agent -s /bin/sh -c '/usr/local/share/npm-global/bin/codex --version' \
+ && test -d /usr/local/share/npm-global/lib/node_modules/@benborla29/mcp-server-mysql \
+ && command -v dockerd >/dev/null \
+ && id -nG agent | grep -qw docker
+
+USER agent
