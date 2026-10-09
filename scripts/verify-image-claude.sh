@@ -7,13 +7,13 @@
 # installed as root are invisible to the agent, so root-only checks pass while
 # the sandbox stays broken.
 #
-# Usage: scripts/verify-image.sh [image]
+# Usage: scripts/verify-image-claude.sh [image]
 
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
-IMAGE="${1:-jarvis-engineer:latest}"
+IMAGE="${1:-jarvis-engineer:claude}"
 HOOKS_DIR=/usr/local/share/ai-memory/hooks
 
 # The plugin cases are driven by the same config the build reads, so the suite
@@ -75,25 +75,7 @@ arg_of() {
 	sed -n "s/^ARG $2=//p" "$1" | head -n 1
 }
 
-# same_pin <ARG name> -- Dockerfile and Dockerfile.codex duplicate their install
-# layers by design (ADR D4), so a version bumped in one must fail the job that
-# builds either image until the other follows.
-same_pin() {
-	local want="$1=$(arg_of Dockerfile "$1")" got="$1=$(arg_of Dockerfile.codex "$1")"
-	if [[ "$want" != "$1=" && "$got" == "$want" ]]; then
-		printf 'ok   Dockerfile and Dockerfile.codex pin the same %s\n' "$1"
-		pass=$((pass + 1))
-	else
-		printf 'FAIL Dockerfile and Dockerfile.codex pin the same %s\n     Dockerfile: %s\n     Dockerfile.codex: %s\n' \
-			"$1" "$want" "$got"
-		fail=$((fail + 1))
-	fi
-}
-
 printf '== image acceptance: %s ==\n' "$IMAGE"
-
-same_pin AI_MEMORY_VERSION
-same_pin GOLANGCI_LINT_VERSION
 
 check 'ai-memory resolves on the agent PATH' \
 	'/usr/local/bin/ai-memory' \

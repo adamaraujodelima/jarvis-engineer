@@ -119,7 +119,7 @@ claude_cases() {
 	# image: a kit that resolves without the custom template silently loses
 	# ai-memory entirely.
 	check "$kit resolves to the custom template" \
-		'jarvis-engineer:latest' "$inspected"
+		'jarvis-engineer:claude' "$inspected"
 
 	check "$kit declares the memory volume + startup steps" \
 		'9 startup' "$inspected"
@@ -173,7 +173,7 @@ codex_cases() {
 	agents_md="$kit/files/home/.codex/AGENTS.md"
 
 	check "$kit resolves to the Codex template" \
-		'jarvis-engineer-codex:latest' "$inspected"
+		'jarvis-engineer:codex' "$inspected"
 
 	check "$kit declares the memory volume + startup steps" \
 		'8 startup' "$inspected"

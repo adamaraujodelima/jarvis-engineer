@@ -1,6 +1,10 @@
 services:
   sdk:
-    image: jarvis-engineer:latest
-    build: .
+    image: jarvis-engineer:claude
+    build:
+      context: .
+      target: claude
+      args:
+        AGENT: claude
     env_file:
       - .env

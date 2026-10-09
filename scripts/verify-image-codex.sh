@@ -2,7 +2,7 @@
 #
 # Image-level acceptance checks for the jarvis-engineer-codex sandbox template.
 #
-# Same rules as verify-image.sh: every case asserts an observable output of a
+# Same rules as verify-image-claude.sh: every case asserts an observable output of a
 # command run as the sandbox's agent user (uid 1000), not merely that a build
 # step exited zero. The Claude-only cases (plugins, status line) have no Codex
 # counterpart and are not here.
@@ -13,7 +13,7 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
-IMAGE="${1:-jarvis-engineer-codex:latest}"
+IMAGE="${1:-jarvis-engineer:codex}"
 HOOKS_DIR=/usr/local/share/ai-memory/hooks
 
 # The codex-docker base installs npm globals here (spike S10, same prefix as
@@ -28,8 +28,8 @@ arg_of() {
 	sed -n "s/^ARG $2=//p" "$1" | head -n 1
 }
 
-AI_MEMORY_VERSION="$(arg_of Dockerfile.codex AI_MEMORY_VERSION)"
-GOLANGCI_LINT_VERSION="$(arg_of Dockerfile.codex GOLANGCI_LINT_VERSION)"
+AI_MEMORY_VERSION="$(arg_of Dockerfile AI_MEMORY_VERSION)"
+GOLANGCI_LINT_VERSION="$(arg_of Dockerfile GOLANGCI_LINT_VERSION)"
 
 # report <name> <expected-substring> <actual>
 report() {
@@ -59,27 +59,7 @@ check_label() {
 	report "$1" "$2" "$(docker image inspect "$IMAGE" --format "{{index .Config.Labels \"$3\"}}" 2>&1)"
 }
 
-# same_pin <ARG name> -- the two Dockerfiles duplicate their install layers by
-# design (ADR D4), so a version bumped in one must fail until the other follows.
-#
-# Compared exactly, not with report's substring match: 2.0.10 contains 2.0.1.
-# A missing ARG in both files must fail too, not compare "X=" with "X=".
-same_pin() {
-	local want="$1=$(arg_of Dockerfile "$1")" got="$1=$(arg_of Dockerfile.codex "$1")"
-	if [[ "$want" != "$1=" && "$got" == "$want" ]]; then
-		printf 'ok   Dockerfile and Dockerfile.codex pin the same %s\n' "$1"
-		pass=$((pass + 1))
-	else
-		printf 'FAIL Dockerfile and Dockerfile.codex pin the same %s\n     Dockerfile: %s\n     Dockerfile.codex: %s\n' \
-			"$1" "$want" "$got"
-		fail=$((fail + 1))
-	fi
-}
-
 printf '== image acceptance: %s ==\n' "$IMAGE"
-
-same_pin AI_MEMORY_VERSION
-same_pin GOLANGCI_LINT_VERSION
 
 # --- ai-memory ----------------------------------------------------------
 check 'ai-memory resolves on the agent PATH' \
@@ -247,7 +227,7 @@ check 'compose plugin is installed' \
 	'ls /usr/libexec/docker/cli-plugins'
 
 # Asserted against /etc/group rather than the current process: `docker run
-# --user 1000:1000` drops supplementary groups (see verify-image.sh).
+# --user 1000:1000` drops supplementary groups (see verify-image-claude.sh).
 # A sentinel rather than the bare group name: `docker` also appears in the
 # error text of a docker run that never started.
 check 'agent user is in the docker group' \
