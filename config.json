@@ -3,12 +3,19 @@
     "anthropics/claude-plugins-official",
     "mattpocock/skills",
     "JuliusBrussee/caveman",
-    "blader/humanizer"
+    "blader/humanizer",
+    "docker/skills"
+  ],
+  "mcpServers": [
+    "@benborla29/mcp-server-mysql@2.0.9",
+    "@microsoft/postgres-mcp"
   ],
   "plugins": [
     "superpowers@claude-plugins-official",
     "caveman@caveman",
     "humanizer@humanizer",
-    "atlassian@claude-plugins-official"
+    "atlassian@claude-plugins-official",
+    "docker-skills@docker",
+    "aws-core@claude-plugins-official"
   ]
 }

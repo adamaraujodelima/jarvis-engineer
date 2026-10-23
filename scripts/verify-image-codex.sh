@@ -131,17 +131,17 @@ check 'trust-codex-hooks resolves on the agent PATH' \
 	'command -v trust-codex-hooks'
 
 check 'ai-memory hooks start untrusted (the baseline the helper changes)' \
-	'trusted=0 untrusted=6' \
+	'trusted=0 untrusted=7' \
 	"$install_ai_memory_hooks $hook_trust_counts"
 
 check 'trust-codex-hooks makes Codex report every ai-memory hook trusted' \
-	'trusted=6 untrusted=0' \
+	'trusted=7 untrusted=0' \
 	"$install_ai_memory_hooks trust-codex-hooks >/dev/null 2>&1; $hook_trust_counts"
 
 # Only ai-memory's hooks are pre-trusted (ADR D6); anything else in the file
 # still goes through Codex's own review.
 check 'trust-codex-hooks leaves a hook that is not ai-memory untrusted' \
-	'trusted=6 untrusted=1' \
+	'trusted=7 untrusted=1' \
 	"$install_ai_memory_hooks
 	 node -e 'const f=process.env.HOME+\"/.codex/hooks.json\",fs=require(\"fs\"),h=JSON.parse(fs.readFileSync(f));h.hooks.Stop.push({matcher:\"\",hooks:[{type:\"command\",command:\"sh -c true\"}]});fs.writeFileSync(f,JSON.stringify(h))';
 	 trust-codex-hooks >/dev/null 2>&1; $hook_trust_counts"
@@ -149,7 +149,7 @@ check 'trust-codex-hooks leaves a hook that is not ai-memory untrusted' \
 # A command that merely starts like ai-memory's (here with a shell command
 # appended) is not ai-memory's hook, and must not be trusted.
 check 'trust-codex-hooks leaves a hook that only starts like ai-memory untrusted' \
-	'trusted=6 untrusted=1' \
+	'trusted=7 untrusted=1' \
 	"$install_ai_memory_hooks
 	 node -e 'const f=process.env.HOME+\"/.codex/hooks.json\",fs=require(\"fs\"),h=JSON.parse(fs.readFileSync(f));h.hooks.Stop.push({matcher:\"\",hooks:[{type:\"command\",command:\"/usr/local/bin/ai-memory --x hook --event stop; touch /tmp/spoofed\"}]});fs.writeFileSync(f,JSON.stringify(h))';
 	 trust-codex-hooks >/dev/null 2>&1; $hook_trust_counts"
@@ -193,9 +193,36 @@ check 'golangci-lint is the pinned version' \
 	"version $GOLANGCI_LINT_VERSION" \
 	'golangci-lint version'
 
-check 'mysql mcp server is installed under the npm prefix' \
-	'mcp-server-mysql' \
-	"ls $NPM_PREFIX/lib/node_modules/@benborla29"
+# Go's race detector needs cgo, which Go disables when no C compiler is on PATH.
+check 'cgo is enabled and a C compiler is on the agent PATH' \
+	'CGO=1' \
+	'command -v gcc >/dev/null && echo CGO=$(go env CGO_ENABLED)'
+
+check 'go tools are on the agent PATH' \
+	'TOOLS_OK' \
+	'for t in govulncheck gotestsum dlv mockgen swag goimports; do command -v "$t" >/dev/null || { echo "MISSING $t"; exit 0; }; done; echo TOOLS_OK'
+
+# Driven by config.json's mcpServers, read from the copy inside the image (this
+# script needs only docker, not jq). The name is the spec minus its version (the
+# last `@` that is not the scope).
+check 'every mcpServers entry is installed under the npm prefix' \
+	'MCP_OK' \
+	"node -e '
+	  const fs = require(\"fs\");
+	  const cfg = JSON.parse(fs.readFileSync(\"/usr/local/share/jarvis-engineer/config.json\", \"utf8\"));
+	  const list = cfg.mcpServers || [];
+	  if (list.length === 0) { console.log(\"EMPTY_LIST\"); process.exit(0); }
+	  for (const spec of list) {
+	    const name = spec.slice(1).includes(\"@\") ? spec.replace(/@[^@]*\$/, \"\") : spec;
+	    if (!fs.existsSync(\"$NPM_PREFIX/lib/node_modules/\" + name)) { console.log(\"MISSING \" + name); process.exit(0); }
+	  }
+	  console.log(\"MCP_OK\");
+	'"
+
+# postgres-mcp needs Node 22+; an older base would install it and fail at start.
+check 'node is new enough for postgres-mcp' \
+	'NODE_OK' \
+	'node -e "process.exit(+process.versions.node.split(\".\")[0] >= 22 ? 0 : 1)" && echo NODE_OK'
 
 check 'codex resolves at the absolute path startup steps use' \
 	"$NPM_PREFIX/bin/codex" \

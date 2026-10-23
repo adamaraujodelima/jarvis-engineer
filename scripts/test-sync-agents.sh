@@ -2,7 +2,7 @@
 #
 # Acceptance tests for scripts/sync-agents.sh, the generator that turns the
 # hand-edited shared/ tree into the committed kit content under
-# agent/files/home (Claude) and agent-codex/files/home (Codex).
+# agent/claude/files/home (Claude) and agent/codex/files/home (Codex).
 #
 # Every case builds its own fixture (a shared/ tree plus a kit with hand-owned
 # files) in a fresh temp directory, runs the generator against it with --root,
@@ -31,8 +31,8 @@ pass=0
 fail=0
 case_seq=0
 
-KIT_HOME=agent/files/home
-CODEX_HOME=agent-codex/files/home
+KIT_HOME=agent/claude/files/home
+CODEX_HOME=agent/codex/files/home
 
 # Fixture sources, as printf %b strings. Two of them deliberately end without
 # a newline: real sources do (ROLE.md, planner.md, two rules, two skills), and
@@ -42,6 +42,9 @@ SRC_DELEGATION='## Delegation mechanics (Claude Code)\n\nThe sub-agents are defi
 SRC_DELEGATION_CODEX='## Delegation mechanics (Codex)\n\nThe sub-agents are in `~/.codex/agents`.\n'
 SRC_ALPHA='---\nname: jarvis-alpha\ndescription: Alpha agent \xe2\x80\x94 does a, b: c.\nclaude.model: sonnet\ncodex.model_reasoning_effort: high\n---\n\n# Alpha\n\nBody.\n'
 SRC_BETA='---\nname: jarvis-beta\ndescription: Beta agent.\nrules: [plain]\nclaude.skills: ["a:b"]\n---\n\n# Beta\n\nBody without a trailing newline.'
+# A Claude-only agent (targets: claude); put by the cases that need it, so the
+# shared fixture keeps exercising agents that reach both kits.
+SRC_GAMMA='---\nname: jarvis-gamma\ndescription: Gamma agent.\nclaude.disallowedTools: Write, Edit\ntargets: claude\n---\n\n# Gamma\n\nBody.\n'
 SRC_RULE_PLAIN='# Plain\n\nRule text.\n'
 SRC_RULE_SCOPED='---\npaths:\n  - "**/*.go"\n---\n\n# Scoped\n\nGo rule.'
 SRC_SKILL="---\nname: demo\ndescription: 'Demo skill.'\n---\n\nSkill body."
@@ -85,11 +88,11 @@ make_fixture() {
 	put "$fx/shared/rules/scoped.md" "$SRC_RULE_SCOPED"
 	put "$fx/shared/skills/demo/SKILL.md" "$SRC_SKILL"
 	put "$fx/shared/skills/demo/ref/notes.txt" "$SRC_SKILL_REF"
-	put "$fx/agent/spec.yaml" "$HAND_SPEC"
+	put "$fx/agent/claude/spec.yaml" "$HAND_SPEC"
 	put "$fx/$KIT_HOME/.jarvis-role" "$HAND_ROLE_LABEL"
 	put "$fx/$KIT_HOME/.claude/settings.json" "$HAND_SETTINGS"
 	put "$fx/$KIT_HOME/.claude/workflows/x.js" "$HAND_WORKFLOW"
-	put "$fx/agent-codex/spec.yaml" "$HAND_CODEX_SPEC"
+	put "$fx/agent/codex/spec.yaml" "$HAND_CODEX_SPEC"
 	put "$fx/$CODEX_HOME/.jarvis-role" "$HAND_ROLE_LABEL"
 }
 
@@ -110,8 +113,8 @@ tree_sum() {
 
 # kits_sum <fixture> -- tree_sum of both kits.
 kits_sum() {
-	tree_sum "$1/agent"
-	tree_sum "$1/agent-codex"
+	tree_sum "$1/agent/claude"
+	tree_sum "$1/agent/codex"
 }
 
 # ---- assertion helpers: return 0 on success, print the reason otherwise ----
@@ -231,11 +234,51 @@ copies_skill_tree() {
 	fi
 }
 
-# rejects <fixture> <shared-relative source> <printf-%b content>
+# with_gamma <fixture> <case function> [args...] -- adds the Claude-only
+# fixture agent, then runs the case.
+with_gamma() {
+	local fx="$1" fn="$2"
+	shift 2
+	put "$fx/shared/agents/gamma.md" "$SRC_GAMMA"
+	"$fn" "$fx" "$@"
+}
+
+claude_only_agent_has_no_codex_toml() {
+	put "$1/shared/agents/gamma.md" "$SRC_GAMMA"
+	gen "$1"
+	expect_rc 0 || return 1
+	if [[ ! -f "$1/$KIT_HOME/.claude/agents/gamma.md" ]]; then
+		printf 'missing Claude agent file for a targets: claude agent'
+		return 1
+	fi
+	if [[ -e "$1/$CODEX_HOME/.codex/agents/jarvis-gamma.toml" ]]; then
+		printf 'a targets: claude agent produced a Codex TOML'
+		return 1
+	fi
+}
+
+claude_only_agent_leaves_codex_unchanged() {
+	local before after
+	gen "$1"
+	expect_rc 0 || return 1
+	before="$(tree_sum "$1/agent/codex")"
+	put "$1/shared/agents/gamma.md" "$SRC_GAMMA"
+	gen "$1"
+	expect_rc 0 || return 1
+	after="$(tree_sum "$1/agent/codex")"
+	if [[ "$before" != "$after" ]]; then
+		printf 'Codex kit changed after adding a targets: claude agent'
+		return 1
+	fi
+}
+
+# rejects <fixture> <shared-relative source> <printf-%b content> [<other source> <printf-%b content>]
 #
 # Replaces one source file with invalid content; the generator must exit 2 and
-# name that source in its diagnostic.
+# name that source in its diagnostic. The optional pair adds a valid source the
+# invalid one conflicts with.
 rejects() {
+	[[ $# -ge 5 ]] && put "$1/shared/$4" "$5"
 	put "$1/shared/$2" "$3"
 	gen "$1"
 	expect_rc 2 || return 1
@@ -309,11 +352,11 @@ failed_write_is_an_error() {
 hand_owned_untouched() {
 	gen "$1"
 	expect_rc 0 || return 1
-	expect_bytes "$1/agent/spec.yaml" "$HAND_SPEC" &&
+	expect_bytes "$1/agent/claude/spec.yaml" "$HAND_SPEC" &&
 		expect_bytes "$1/$KIT_HOME/.jarvis-role" "$HAND_ROLE_LABEL" &&
 		expect_bytes "$1/$KIT_HOME/.claude/settings.json" "$HAND_SETTINGS" &&
 		expect_bytes "$1/$KIT_HOME/.claude/workflows/x.js" "$HAND_WORKFLOW" &&
-		expect_bytes "$1/agent-codex/spec.yaml" "$HAND_CODEX_SPEC" &&
+		expect_bytes "$1/agent/codex/spec.yaml" "$HAND_CODEX_SPEC" &&
 		expect_bytes "$1/$CODEX_HOME/.jarvis-role" "$HAND_ROLE_LABEL"
 }
 
@@ -352,12 +395,12 @@ check_detects_in() {
 check_ignores_hand_owned() {
 	gen "$1"
 	expect_rc 0 || return 1
-	printf 'edited\n' >>"$1/agent/spec.yaml"
+	printf 'edited\n' >>"$1/agent/claude/spec.yaml"
 	printf 'edited\n' >>"$1/$KIT_HOME/.jarvis-role"
 	printf 'edited\n' >>"$1/$KIT_HOME/.claude/settings.json"
 	printf 'edited\n' >>"$1/$KIT_HOME/.claude/workflows/x.js"
 	put "$1/$KIT_HOME/.claude/workflows/new.js" 'new\n'
-	printf 'edited\n' >>"$1/agent-codex/spec.yaml"
+	printf 'edited\n' >>"$1/agent/codex/spec.yaml"
 	printf 'edited\n' >>"$1/$CODEX_HOME/.jarvis-role"
 	gen "$1" --check
 	expect_rc 0
@@ -429,6 +472,12 @@ run_case "emit: concatenates role core, one blank line, delegation.claude.md int
 	generates ROLE.md \
 	"$(marker_text 'role/ROLE.md + shared/role/delegation.claude.md')\n${SRC_ROLE}\n${SRC_DELEGATION}"
 
+run_case "emit: maps claude.disallowedTools to disallowedTools: byte for byte" \
+	with_gamma generated_line .claude/agents/gamma.md 4 'disallowedTools: Write, Edit'
+run_case "emit: keeps targets out of the Claude agent frontmatter" \
+	with_gamma generates .claude/agents/gamma.md \
+	"---\nname: jarvis-gamma\ndescription: Gamma agent.\ndisallowedTools: Write, Edit\n---\n$(marker_text agents/gamma.md)\n\n# Gamma\n\nBody.\n"
+
 run_case "codex: writes an agent TOML with marker, strings, codex keys and the body" \
 	generates_codex .codex/agents/jarvis-alpha.toml \
 	"$(toml_marker_text agents/alpha.md)"'\nname = "jarvis-alpha"\ndescription = "Alpha agent \xe2\x80\x94 does a, b: c."\nmodel_reasoning_effort = "high"\ndeveloper_instructions = '"$Q3"'\n# Alpha\n\nBody.\n'"$Q3"'\n'
@@ -452,6 +501,11 @@ run_case "codex: builds AGENTS.md from role core, delegation.codex.md and a rule
 	"$(marker_text 'role/ROLE.md + shared/role/delegation.codex.md + rules index')\n${SRC_ROLE}\n${SRC_DELEGATION_CODEX}\n"'## Rules index\n\n- `plain`: Plain (`/home/agent/.jarvis/rules/plain.md`)\n- `scoped`: Scoped (`/home/agent/.jarvis/rules/scoped.md`)\n'
 run_case "codex: copies skill directories to .agents/skills byte for byte" \
 	copies_skill_tree_to_codex
+
+run_case "codex: a targets: claude agent gets a Claude file and no Codex TOML" \
+	claude_only_agent_has_no_codex_toml
+run_case "codex: a targets: claude agent leaves the Codex kit byte-identical" \
+	claude_only_agent_leaves_codex_unchanged
 
 run_case "reject: unknown frontmatter key" \
 	rejects agents/alpha.md '---\nname: jarvis-alpha\ndescription: d\ncolor: red\n---\n\nBody.\n'
@@ -501,6 +555,17 @@ run_case "reject: quoted agent description (Codex would keep the quotes)" \
 	rejects agents/alpha.md "---\nname: jarvis-alpha\ndescription: 'Quoted.'\n---\n\nBody.\n"
 run_case "reject: two agents with the same name" \
 	rejects agents/beta.md '---\nname: jarvis-alpha\ndescription: d\n---\n\nBody.\n'
+run_case "reject: targets other than claude" \
+	rejects agents/gamma.md '---\nname: jarvis-gamma\ndescription: d\ntargets: codex\n---\n\nBody.\n'
+run_case "reject: targets with more than one target" \
+	rejects agents/gamma.md '---\nname: jarvis-gamma\ndescription: d\ntargets: claude codex\n---\n\nBody.\n'
+run_case "reject: targets: claude agent named like an agent processed before it" \
+	rejects agents/gamma.md '---\nname: jarvis-alpha\ndescription: d\ntargets: claude\n---\n\nBody.\n'
+run_case "reject: agent named like a targets: claude agent processed before it" \
+	rejects agents/beta.md '---\nname: jarvis-aa\ndescription: d\n---\n\nBody.\n' \
+	'agents/aa.md' '---\nname: jarvis-aa\ndescription: d\ntargets: claude\n---\n\nBody.\n'
+run_case "reject: .claude/ in a targets: claude agent body (bodies stay neutral)" \
+	rejects agents/gamma.md '---\nname: jarvis-gamma\ndescription: d\ntargets: claude\n---\n\nSee .claude/agents.\n'
 run_case "reject: control character in an agent body" \
 	rejects agents/alpha.md '---\nname: jarvis-alpha\ndescription: d\n---\n\nBell \001 here.\n'
 run_case "reject: control character in an agent description" \
@@ -549,6 +614,10 @@ run_case "check: fails and names an extra file in the Codex skills" \
 	check_detects_codex extra .agents/skills/extra.md
 run_case "check: fails and names a missing Codex rule" \
 	check_detects_codex remove .jarvis/rules/plain.md
+run_case "check: passes on a fresh kit with a targets: claude agent" \
+	with_gamma check_passes_when_fresh
+run_case "check: fails and names a missing targets: claude agent file" \
+	with_gamma check_detects remove .claude/agents/gamma.md
 run_case "check: passes when only hand-owned files differ" \
 	check_ignores_hand_owned
 run_case "check: does not modify the kit and leaves no temp directory behind" \
